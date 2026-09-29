@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+langchain
+langchain-community
+langchain-openai
+langgraph
+neo4j
+faiss-cpu
+pytest
+pydantic
+python-dotenv
+httpx
