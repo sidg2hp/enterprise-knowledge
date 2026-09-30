@@ -1,0 +1,46 @@
+Enterprise Knowledge Assistant - How to Use
+
+1. Does this project use an LLM?
+Yes, this project is designed to be powered by Large Language Models (LLMs) through LangChain and LangGraph. 
+Currently, the backend scaffolding is set up to support:
+- Local LLMs via Ollama (e.g., Llama 3) for data privacy.
+- Cloud LLMs via OpenAI (e.g., GPT-4) for advanced reasoning.
+
+The LLMs are used to:
+- Analyze your query (e.g., figure out if you're asking about HR, Policy, or Precedent).
+- Synthesize the final response by reading the retrieved documents.
+- Evaluate the response to ensure every sentence has a traceable citation.
+
+2. How does the data retrieval work?
+This project uses "GraphRAG" (Graph Retrieval-Augmented Generation). When you ask a question:
+- FAISS (Vector Database) finds semantically similar text.
+- BM25 finds exact keyword matches.
+- Neo4j (Graph Database) maps the relationships between entities (e.g., "Person A" -> "Worked On" -> "Project B").
+The LLM reads this combined data to answer your question securely.
+
+3. How to Operate the Project
+
+Option A: Run everything with Docker (Recommended)
+This requires Docker and Docker Compose installed on your system.
+1. Open a terminal in the root directory (where docker-compose.yml is located).
+2. Run: `docker-compose up --build`
+3. This will start:
+   - The Next.js Frontend UI at http://localhost:3000
+   - The FastAPI Backend at http://localhost:8000
+   - The Neo4j Graph Database at http://localhost:7474
+
+Option B: Run Locally (Without Docker)
+
+Backend:
+1. Navigate to the backend folder: `cd backend`
+2. Activate the virtual environment: `.\venv\Scripts\activate`
+3. Start the API server: `uvicorn main:app --reload`
+4. You can access the API docs at http://localhost:8000/docs
+
+Frontend:
+1. Navigate to the frontend folder: `cd frontend`
+2. Start the development server: `npm run dev`
+3. Open http://localhost:3000 in your browser.
+
+4. Interacting with the Assistant
+Once the services are running, you can use the Next.js frontend to type a query. The backend will route your query to the specialized agent (e.g., if you ask for a resume, it hits the HR Agent). The agent retrieves mocked data and returns a response appended with traceable citations (e.g., [DocID: HR-101]).
