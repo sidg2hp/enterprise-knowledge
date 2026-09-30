@@ -11,7 +11,13 @@ The LLMs are used to:
 - Synthesize the final response by reading the retrieved documents.
 - Evaluate the response to ensure every sentence has a traceable citation.
 
-2. How does the data retrieval work?
+2. Is the Knowledge Graph feature included?
+Yes! The Knowledge Graph feature is a core component of this architecture, implemented using **Neo4j**. 
+- The infrastructure for the Knowledge Graph is already fully set up and containerized in the `docker-compose.yml` file. When you run Docker, a local Neo4j database instance boots up on port 7474.
+- The `backend/requirements.txt` already includes the official Neo4j Python drivers.
+- The architecture implements **GraphRAG** (Graph Retrieval-Augmented Generation). While the current backend Python code (`backend/graph.py`) has the LangGraph pipeline wired up with a mocked `hybrid_retriever` node as a placeholder, the next step in development would be to connect that node directly to your Neo4j instance to perform live Cypher queries.
+
+3. How does the data retrieval work?
 This project uses "GraphRAG" (Graph Retrieval-Augmented Generation). When you ask a question:
 - FAISS (Vector Database) finds semantically similar text.
 - BM25 finds exact keyword matches.
