@@ -1,10 +1,12 @@
 Knowwise - How to Use
 
-This repository now implements an offline-friendly evidence-first vertical
-slice. It accepts UTF-8 TXT and Markdown files, stores deterministic chunks,
-and returns extractive answers with citations that resolve to returned source
-passages. It does not currently use an LLM, PDF parser, Neo4j, FAISS, or a
-hosted vector database.
+This repository implements an offline-friendly evidence-first vertical slice
+with optional decision-intelligence integrations. It accepts UTF-8 TXT and
+Markdown files, stores deterministic chunks, and returns answers with
+citations that resolve to returned source passages. BM25 is the default;
+optional FAISS/vector retrieval, Ollama embeddings/chat, and read-only Neo4j
+context are available when configured. PDF extraction, authentication, and
+document permissions are not implemented yet.
 
 1. Start the application
 
@@ -26,8 +28,9 @@ Local frontend, in a second terminal:
 
 Open http://localhost:3000. Add `samples/handbook.md`, wait for it to appear
 as Ready, then ask: "What does the handbook require?" Expand an evidence card
-to inspect the exact passage and stable citation ID. Ask an unrelated question
-to see the explicit abstention state.
+to inspect the exact passage and stable citation ID. The answer metadata shows
+the selected domain, retrieval mode, generation mode, and groundedness proxy.
+Ask an unrelated question to see the explicit abstention state.
 
 3. Use the API
 
@@ -39,4 +42,5 @@ to see the explicit abstention state.
 
 Operational endpoints are `/healthz` for liveness and `/readyz` for the
 knowledge-store readiness check. See README.md for the complete setup,
-testing, deployment, security limitations, and roadmap.
+testing, evaluation, optional Ollama/Neo4j setup, deployment, security
+limitations, and roadmap.

@@ -15,8 +15,8 @@ engineering interview.
 | --- | --- |
 | Local application | Working end-to-end vertical slice |
 | Supported ingestion | UTF-8 `.txt`, `.md`, and `.markdown` |
-| Retrieval | Deterministic lexical retrieval |
-| Answer behavior | Extractive responses with evidence and abstention |
+| Retrieval | BM25 by default; optional vector/FAISS and Ollama embeddings |
+| Answer behavior | Extractive by default; optional Ollama synthesis with evidence and abstention |
 | Automated checks | Backend pytest plus frontend lint, typecheck, and build |
 | Public deployment | Not currently published; run locally with Docker Compose |
 
@@ -28,9 +28,19 @@ engineering interview.
   chunking, and stable `document_id#chunk-N` citations.
 - A persisted, atomic JSON document store and a lexical retriever that works
   without API keys or network access.
-- LangGraph orchestration for query classification, retrieval, synthesis, and
-  citation validation.
+- A real BM25 implementation plus optional vector retrieval using FAISS when
+  installed, with a deterministic hash-vector fallback for offline CI.
+- Optional Ollama embeddings and chat synthesis with an evidence-only prompt;
+  the extractive answer path remains the safe fallback.
+- LangGraph orchestration for six domains: HR, policy, precedent, finance,
+  engineering, and general enterprise knowledge.
+- Optional, read-only Neo4j graph context with safe Cypher validation. Graph
+  context never replaces source-passage grounding.
 - Explicit abstention when no indexed passage matches a query.
+- Deterministic evaluation for Recall@k, MRR@k, citation validity,
+  groundedness proxy, and abstention accuracy.
+- Request-correlated JSON event logging that records metadata and hashes but
+  never logs document or query text.
 - Next.js workspace UI with real document loading, upload states, answer
   states, source cards, expandable evidence passages, and failure states.
 - Docker Compose with a persisted data volume, backend health checks, CORS
@@ -39,16 +49,18 @@ engineering interview.
 
 ## Honest scope and trade-offs
 
-The current release supports `.txt`, `.md`, and `.markdown` only. It does not
-claim PDF extraction, vector embeddings, BM25, Neo4j GraphRAG, authentication,
-multi-tenant permissions, or LLM-generated synthesis. The answer is extractive
-and built from retrieved passages, which makes citation integrity testable.
+The current release supports `.txt`, `.md`, and `.markdown` only. BM25 is the
+default offline retriever. FAISS, Ollama, and Neo4j are implemented as optional
+integrations and require their own runtime setup; CI does not depend on them.
+Authentication, document-level permissions, PDF extraction, and a measured
+95% research-time reduction are not implemented or claimed. The system does
+not claim 100% grounding: it validates citation resolution and reports a
+deterministic lexical groundedness proxy.
 
-This is a deliberate first release: a reliable vertical slice is more useful
-than a diagram that advertises infrastructure the code does not use. The next
-production-oriented steps would be a real database/index, PDF extraction,
-authentication and document-level ACL filtering, then an embedding/BM25
-comparison backed by a versioned evaluation set.
+This is a deliberate first release: optional integrations are real code paths,
+while the default remains reproducible. The next production-oriented steps are
+PDF extraction, authentication and document-level ACL filtering, a durable
+multi-process index, and a larger benchmark with manually reviewed claims.
 
 ## Architecture
 
@@ -60,10 +72,14 @@ flowchart LR
   A --> I[Normalize + chunk]
   I --> S[(Atomic JSON store)]
   A --> G[LangGraph]
-  G --> R[Lexical retriever]
+  G --> D{Six-domain router}
+  D --> L[Specialist metadata node]
+  L --> R[BM25 / vector retrieval]
+  R --> N[(Optional Neo4j context)]
   R --> S
   R --> V[Evidence passages]
-  V --> C[Citation validator]
+  V --> O[Optional Ollama synthesis]
+  O --> C[Citation + grounding evaluator]
   C --> F
 ```
 
@@ -96,6 +112,25 @@ service exposed besides the UI; no unused database port is published.
 For a non-local deployment, set `NEXT_PUBLIC_API_URL` to the public backend
 origin before building the frontend and set `CORS_ORIGINS` to the exact UI
 origin. Do not commit secrets or put secrets in `NEXT_PUBLIC_*` variables.
+
+### Optional vector, Ollama, and Neo4j integrations
+
+The default Compose stack is deliberately offline-friendly. To enable the
+optional adapters, install the pinned packages in
+`backend/requirements.optional.lock`, run Ollama separately, and configure
+the variables in `.env.example`. Set `KNOWLEDGE_RETRIEVER_MODE=hybrid` to
+combine BM25 with vector scores. If FAISS or Ollama is unavailable, the
+retriever records the fallback mode instead of failing the request.
+
+To start the optional Neo4j service in the Compose profile:
+
+```bash
+docker compose --profile graph up --build
+```
+
+Set `NEO4J_URI=bolt://neo4j:7687`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD` to
+match the profile's `NEO4J_AUTH` value. Neo4j is used only for read-only graph
+context; the returned answer must still cite local evidence passages.
 
 ## Run locally
 
@@ -138,6 +173,16 @@ typechecking. To verify the production frontend build:
 make build
 ```
 
+To run the versioned retrieval/grounding fixture and print measured metrics:
+
+```bash
+make evaluate
+```
+
+The current small fixture reports Recall@5, MRR@5, citation validity,
+groundedness proxy, and abstention accuracy. These are regression signals, not
+claims about production performance.
+
 Backend tests cover deterministic ingestion, stable chunk metadata, real
 retrieval, citation integrity, abstention, upload/list/delete API behavior,
 invalid uploads, and health/readiness endpoints.
@@ -163,7 +208,13 @@ evidence item in the same response.
 backend/
   main.py             FastAPI routes and operational endpoints
   graph.py            LangGraph workflow and citation validation
+  graph_adapter.py    optional read-only Neo4j context
+  retrieval.py        BM25, vector, FAISS, and Ollama embedding adapters
+  llm.py              optional Ollama grounded chat adapter
   knowledge.py        ingestion, chunking, persistence, retrieval
+  evaluation.py       deterministic quality metrics
+  evaluate.py         versioned offline evaluation runner
+  observability.py    request-safe structured event logging
   test_graph.py       offline behavior and API tests
 frontend/src/app/
   page.tsx            workspace UI and API integration
@@ -183,10 +234,10 @@ and a managed persistence/index layer with backups.
 
 ## Roadmap
 
-1. Add PDF extraction with page-aware metadata and a fixture corpus.
-2. Add an embedding index and BM25 baseline, then publish Recall@k/MRR@k
-   comparisons rather than unmeasured claims.
+1. Add PDF extraction with page-aware metadata and expand the fixture corpus.
+2. Benchmark BM25, FAISS/vector, and hybrid retrieval on 50–100 reviewed
+   questions, publishing Recall@k/MRR@k comparisons.
 3. Add authentication, workspace isolation, upload quotas, and prompt/
    document-injection tests.
-4. Add an optional LLM synthesis provider behind a deterministic fake for CI,
-   retaining the citation validator and abstention gate.
+4. Add a production persistence/index layer and a deterministic fake model for
+   Ollama synthesis tests, retaining the citation validator and abstention gate.
