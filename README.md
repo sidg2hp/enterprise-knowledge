@@ -21,6 +21,7 @@ engineering interview.
   states, source cards, expandable evidence passages, and failure states.
 - Docker Compose with a persisted data volume, backend health checks, CORS
   configuration, and `npm ci`/pinned backend dependencies.
+- GitHub Actions CI for backend tests and frontend lint, typecheck, and build.
 
 ## Honest scope and trade-offs
 
