@@ -1,69 +1,317 @@
-import Image from "next/image";
+"use client";
+
+import {
+  ChangeEvent,
+  FormEvent,
+  useRef,
+  useState,
+} from "react";
+
+type IconName =
+  | "activity"
+  | "arrow-up"
+  | "book"
+  | "check"
+  | "chevron-down"
+  | "chevron-right"
+  | "clock"
+  | "cloud-upload"
+  | "file"
+  | "file-text"
+  | "folder"
+  | "grid"
+  | "info"
+  | "message"
+  | "more"
+  | "plus"
+  | "search"
+  | "shield"
+  | "sparkles"
+  | "trash"
+  | "x";
+
+type DocumentStatus = "Ready" | "Processing" | "Needs review";
+
+type KnowledgeDocument = {
+  id: string;
+  name: string;
+  type: string;
+  size: string;
+  updated: string;
+  status: DocumentStatus;
+};
+
+type Source = {
+  id: string;
+  title: string;
+  detail: string;
+  score: string;
+};
+
+type AssistantMessage = {
+  question: string;
+  answer: string;
+  domain?: string;
+  citations: string[];
+  sources: Source[];
+};
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+const starterDocuments: KnowledgeDocument[] = [
+  {
+    id: "hr-101",
+    name: "Employee Handbook 2024.pdf",
+    type: "PDF",
+    size: "2.4 MB",
+    updated: "Today, 9:42 AM",
+    status: "Ready",
+  },
+  {
+    id: "pol-202",
+    name: "Remote Work Policy.docx",
+    type: "DOCX",
+    size: "842 KB",
+    updated: "Yesterday",
+    status: "Ready",
+  },
+  {
+    id: "prec-303",
+    name: "Project X — Retrospective.pdf",
+    type: "PDF",
+    size: "1.8 MB",
+    updated: "Oct 18, 2024",
+    status: "Ready",
+  },
+  {
+    id: "gen-000",
+    name: "Company Overview 2024.pdf",
+    type: "PDF",
+    size: "3.1 MB",
+    updated: "Oct 15, 2024",
+    status: "Needs review",
+  },
+];
+
+const suggestedQuestions = [
+  "What is our remote work policy?",
+  "Summarize our hiring process",
+  "What made Project X successful?",
+];
+
+function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  const paths: Record<IconName, React.ReactNode> = {
+    activity: <><path d="M3 12h4l2.3-7 4.4 14 2.3-7H21" /></>,
+    "arrow-up": <><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></>,
+    book: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z" /><path d="M4 5.5v16" /><path d="M8 7h8M8 11h7" /></>,
+    check: <path d="m5 12 4 4L19 6" />,
+    "chevron-down": <path d="m6 9 6 6 6-6" />,
+    "chevron-right": <path d="m9 18 6-6-6-6" />,
+    clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3 2" /></>,
+    "cloud-upload": <><path d="M16 16l-4-4-4 4" /><path d="M12 12v9" /><path d="M20.4 17.5A4.5 4.5 0 0 0 19 9h-1.2A6 6 0 0 0 6 10.5 3.5 3.5 0 0 0 6.5 17" /></>,
+    file: <><path d="M14 2.5H6.5A1.5 1.5 0 0 0 5 4v16a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 20V7.5z" /><path d="M14 2.5V8h5" /></>,
+    "file-text": <><path d="M14 2.5H6.5A1.5 1.5 0 0 0 5 4v16a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 20V7.5z" /><path d="M14 2.5V8h5M8 12h8M8 16h6" /></>,
+    folder: <><path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h5l2 2h7.5A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-14A1.5 1.5 0 0 1 4 17.5z" /></>,
+    grid: <><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></>,
+    info: <><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5M12 8h.01" /></>,
+    message: <><path d="M20 11.5a7.5 7.5 0 0 1-8 7.5 8.3 8.3 0 0 1-3.7-.9L4 20l1.8-3.7A7.2 7.2 0 0 1 4 11.5 7.5 7.5 0 0 1 12 4a7.5 7.5 0 0 1 8 7.5Z" /></>,
+    more: <><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" /></>,
+    plus: <><path d="M12 5v14M5 12h14" /></>,
+    search: <><circle cx="10.8" cy="10.8" r="6.5" /><path d="m16 16 4.5 4.5" /></>,
+    shield: <><path d="M12 3 19 6v5.7c0 4.3-2.8 7.5-7 9.3-4.2-1.8-7-5-7-9.3V6z" /><path d="m9 12 2 2 4-4" /></>,
+    sparkles: <><path d="m12 3-1.2 4.1L7 8.5l3.8 1.4L12 14l1.2-4.1L17 8.5l-3.8-1.4z" /><path d="m19 14-.6 2.4L16 17l2.4.6L19 20l.6-2.4L22 17l-2.4-.6z" /></>,
+    trash: <><path d="M4 7h16M10 11v5M14 11v5" /><path d="m6 7 .7 13h10.6L18 7M9 7l.7-3h4.6l.7 3" /></>,
+    x: <><path d="m6 6 12 12M18 6 6 18" /></>,
+  };
+
+  return <svg {...common}>{paths[name]}</svg>;
+}
+
+function StatusBadge({ status }: { status: DocumentStatus }) {
+  const statusClass = status === "Ready" ? "ready" : status === "Processing" ? "processing" : "review";
+  return (
+    <span className={`status-badge ${statusClass}`}>
+      {status === "Ready" ? <Icon name="check" size={12} /> : status === "Processing" ? <Icon name="clock" size={12} /> : <Icon name="info" size={12} />}
+      {status}
+    </span>
+  );
+}
+
+function SourceCard({ source }: { source: Source }) {
+  return (
+    <article className="source-card">
+      <div className="source-icon"><Icon name="file-text" size={16} /></div>
+      <div className="source-copy">
+        <div className="source-title-row">
+          <h4>{source.title}</h4>
+          <span>{source.score} match</span>
+        </div>
+        <p>{source.detail}</p>
+        <button className="source-link" type="button">View source <Icon name="chevron-right" size={13} /></button>
+      </div>
+    </article>
+  );
+}
 
 export default function Home() {
+  const [documents, setDocuments] = useState<KnowledgeDocument[]>(starterDocuments);
+  const [query, setQuery] = useState("");
+  const [activeQuery, setActiveQuery] = useState("");
+  const [message, setMessage] = useState<AssistantMessage | null>(null);
+  const [isQuerying, setIsQuerying] = useState(false);
+  const [queryError, setQueryError] = useState("");
+  const [uploadError, setUploadError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [filter, setFilter] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const readyCount = documents.filter((document) => document.status === "Ready").length;
+  const filteredDocuments = documents.filter((document) => document.name.toLowerCase().includes(filter.toLowerCase()));
+
+  async function handleQuery(event?: FormEvent<HTMLFormElement>, suggestedQuery?: string) {
+    event?.preventDefault();
+    const nextQuery = (suggestedQuery ?? query).trim();
+    if (!nextQuery || isQuerying) return;
+
+    setQuery(nextQuery);
+    setActiveQuery(nextQuery);
+    setIsQuerying(true);
+    setQueryError("");
+    setMessage(null);
+
+    try {
+      const response = await fetch(`${API_URL}/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: nextQuery }),
+      });
+      if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+      const data = (await response.json()) as { response?: string; domain?: string; citations?: string[] };
+      const citations = Array.isArray(data.citations) ? data.citations : [];
+      const sourceDetails: Record<string, Source> = {
+        "HR-101": { id: "HR-101", title: "Employee Handbook 2024", detail: "People & culture · Section 4.2", score: "94%" },
+        "POL-202": { id: "POL-202", title: "Remote Work Policy", detail: "Policies · Section 2.1", score: "91%" },
+        "PREC-303": { id: "PREC-303", title: "Project X — Retrospective", detail: "Projects · Outcomes & learnings", score: "88%" },
+        "GEN-000": { id: "GEN-000", title: "Company Overview 2024", detail: "Company · About the organization", score: "86%" },
+      };
+      setMessage({
+        question: nextQuery,
+        answer: data.response || "I found no answer in the connected knowledge base.",
+        domain: data.domain,
+        citations,
+        sources: citations.map((citation) => sourceDetails[citation] ?? { id: citation, title: citation, detail: "Knowledge base source", score: "—" }),
+      });
+    } catch {
+      setQueryError(`Couldn’t reach the knowledge service at ${API_URL}. Check that the API is running and try again.`);
+    } finally {
+      setIsQuerying(false);
+    }
+  }
+
+  async function handleFiles(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setUploading(true);
+    setUploadError("");
+    const temporaryId = `${file.name}-${file.lastModified}`;
+    setDocuments((current) => [
+      { id: temporaryId, name: file.name, type: file.name.split(".").pop()?.toUpperCase() || "FILE", size: formatFileSize(file.size), updated: "Uploading now", status: "Processing" },
+      ...current,
+    ]);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch(`${API_URL}/documents`, { method: "POST", body: formData });
+      if (!response.ok) throw new Error("Upload failed");
+      setDocuments((current) => current.map((document) => document.id === temporaryId ? { ...document, updated: "Just now", status: "Ready" } : document));
+    } catch {
+      setDocuments((current) => current.filter((document) => document.id !== temporaryId));
+      setUploadError(`We couldn’t upload ${file.name}. Make sure the document service is available and try again.`);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function formatFileSize(bytes: number) {
+    if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark"><Icon name="sparkles" size={18} /></div>
+          <span>know<span className="brand-accent">wise</span></span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="workspace-switcher">
+          <div className="workspace-avatar">AC</div>
+          <div><strong>Acme Corp</strong><span>Enterprise workspace</span></div>
+          <Icon name="chevron-down" size={15} />
         </div>
-      </main>
-    </div>
+        <nav className="primary-nav" aria-label="Primary navigation">
+          <span className="nav-label">Workspace</span>
+          <a className="nav-item active" href="#ask"><Icon name="message" size={18} />Ask knowledge <span className="nav-shortcut">⌘ K</span></a>
+          <a className="nav-item" href="#documents"><Icon name="folder" size={18} />Documents <span className="nav-count">{documents.length}</span></a>
+          <a className="nav-item" href="#activity"><Icon name="activity" size={18} />Activity</a>
+          <span className="nav-label nav-label-spaced">Manage</span>
+          <a className="nav-item" href="#team"><Icon name="grid" size={18} />Team & access</a>
+          <a className="nav-item" href="#settings"><Icon name="shield" size={18} />Workspace settings</a>
+        </nav>
+        <div className="sidebar-footer">
+          <div className="usage-card"><div className="usage-heading"><span>Knowledge usage</span><Icon name="more" size={16} /></div><strong>{documents.length * 2.1 + 1.6 > 10 ? "10.0" : (documents.length * 2.1 + 1.6).toFixed(1)} GB</strong><span className="usage-muted">of 25 GB used</span><div className="usage-bar"><span style={{ width: `${Math.min(100, documents.length * 8 + 12)}%` }} /></div><span className="usage-muted">Resets on Jan 01, 2025</span></div>
+          <div className="profile"><div className="profile-avatar">JD</div><div><strong>Jordan Davis</strong><span>Admin</span></div><Icon name="more" size={17} /></div>
+        </div>
+      </aside>
+
+      <section className="main-content">
+        <header className="topbar">
+          <div className="breadcrumb"><span>Workspace</span><Icon name="chevron-right" size={14} /><strong>Ask knowledge</strong></div>
+          <div className="topbar-actions"><button className="icon-button" type="button" aria-label="Search"><Icon name="search" size={18} /></button><button className="help-button" type="button"><Icon name="info" size={16} />Help center</button><div className="topbar-avatar">JD</div></div>
+        </header>
+
+        <div className="content-grid">
+          <section className="knowledge-column" id="ask">
+            <div className="page-heading"><div><p className="eyebrow"><span className="live-dot" />Knowledge assistant</p><h1>Find the signal in your knowledge.</h1><p className="heading-copy">Ask anything about your company’s documents and get answers you can trust.</p></div><div className="secure-note"><Icon name="shield" size={16} /><span>Private to your workspace</span></div></div>
+
+            <div className={`answer-panel ${message ? "has-answer" : ""}`}>
+              {!message && !isQuerying && !queryError && <div className="welcome-state"><div className="welcome-icon"><Icon name="sparkles" size={22} /></div><h2>What would you like to know?</h2><p>Search across your indexed documents to get a grounded answer with clear sources.</p><div className="suggestion-list">{suggestedQuestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => void handleQuery(undefined, suggestion)}><span>{suggestion}</span><Icon name="arrow-up" size={15} /></button>)}</div></div>}
+              {isQuerying && <div className="loading-state"><div className="loading-orb"><span /><span /><span /></div><h2>Searching your knowledge...</h2><p>Retrieving the most relevant passages and checking their sources.</p><div className="loading-lines"><span /><span /><span /></div></div>}
+              {queryError && !isQuerying && <div className="error-state"><div className="error-icon"><Icon name="info" size={21} /></div><h2>We couldn’t complete that search.</h2><p>{queryError}</p><button className="secondary-button" type="button" onClick={() => void handleQuery(undefined, activeQuery)}>Try again <Icon name="arrow-up" size={15} /></button></div>}
+              {message && !isQuerying && <div className="answer-content"><div className="question-row"><div className="question-avatar">JD</div><div><span className="answer-label">Your question</span><p>{message.question}</p></div></div><div className="assistant-row"><div className="assistant-avatar"><Icon name="sparkles" size={16} /></div><div className="assistant-copy"><div className="answer-meta"><span>Answer</span>{message.domain && <span className="domain-chip">{message.domain}</span>}<span className="answer-time">Just now</span></div><p className="answer-text">{message.answer}</p>{message.sources.length > 0 && <div className="sources-section"><div className="sources-heading"><span>Sources</span><span>{message.sources.length} documents</span></div><div className="source-list">{message.sources.map((source) => <SourceCard key={source.id} source={source} />)}</div></div>}{message.sources.length === 0 && <div className="no-sources"><Icon name="info" size={15} /> This answer did not include any source citations.</div>}</div></div></div>}
+            </div>
+
+            <form className="composer" onSubmit={handleQuery}><div className="composer-top"><textarea value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ask a question about your knowledge base..." rows={2} aria-label="Ask a question" /><button className="send-button" type="submit" disabled={!query.trim() || isQuerying} aria-label="Send question"><Icon name="arrow-up" size={18} /></button></div><div className="composer-bottom"><div className="composer-hint"><Icon name="sparkles" size={14} /> Answers are generated from your indexed documents</div><span className="keyboard-hint">Press <kbd>⌘</kbd><kbd>↵</kbd> to send</span></div></form>
+            <p className="disclaimer"><Icon name="info" size={13} /> AI-generated answers may be incomplete. Always verify important information in the source document.</p>
+          </section>
+
+          <aside className="documents-column" id="documents">
+            <div className="panel-heading"><div><h2>Knowledge base</h2><p>{readyCount} ready to answer questions</p></div><button className="add-button" type="button" onClick={() => fileInputRef.current?.click()}><Icon name="plus" size={16} />Add files</button></div>
+            <div className="upload-panel" onClick={() => fileInputRef.current?.click()} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") fileInputRef.current?.click(); }}><div className="upload-icon"><Icon name="cloud-upload" size={20} /></div><div><strong>{uploading ? "Uploading document..." : "Drop files to index"}</strong><p>PDF, DOCX, TXT up to 50 MB</p></div><Icon name="chevron-right" size={17} /></div>
+            <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.txt,.md" onChange={(event) => void handleFiles(event)} hidden />
+            {uploadError && <div className="inline-error"><Icon name="info" size={15} /><span>{uploadError}</span><button type="button" onClick={() => setUploadError("")} aria-label="Dismiss upload error"><Icon name="x" size={14} /></button></div>}
+            <div className="document-toolbar"><div className="doc-title"><span>Documents</span><span className="doc-count">{documents.length}</span></div><div className="doc-tools"><label className="search-field"><Icon name="search" size={15} /><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter" aria-label="Filter documents" /></label><button className="icon-button small" type="button" aria-label="Document options"><Icon name="more" size={16} /></button></div></div>
+             <div className="document-list">{filteredDocuments.length === 0 ? <div className="empty-documents"><div className="empty-icon"><Icon name="folder" size={20} /></div><strong>No documents found</strong><p>{documents.length === 0 ? "Upload a file to start building your knowledge base." : "Try a different search term."}</p>{documents.length === 0 && <button type="button" onClick={() => fileInputRef.current?.click()}>Upload your first file <Icon name="arrow-up" size={14} /></button>}</div> : filteredDocuments.map((document) => <div className="document-row" key={document.id}><div className={`document-icon ${document.type.toLowerCase()}`}><Icon name="file-text" size={17} /></div><div className="document-details"><strong title={document.name}>{document.name}</strong><span>{document.type} · {document.size} · {document.updated}</span></div><StatusBadge status={document.status} /><button type="button" className="row-more" aria-label={`Options for ${document.name}`}><Icon name="more" size={16} /></button></div>)}</div>
+            <button className="view-all" type="button">View all documents <Icon name="chevron-right" size={15} /></button>
+            <div className="index-status"><div className="index-status-icon"><Icon name="check" size={16} /></div><div><strong>Index is up to date</strong><p>Last synced just now</p></div><button type="button" aria-label="Index status information"><Icon name="info" size={15} /></button></div>
+          </aside>
+        </div>
+      </section>
+    </main>
   );
 }
