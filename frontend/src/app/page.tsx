@@ -58,6 +58,10 @@ type AssistantMessage = {
   citations: string[];
   sources: Source[];
   abstained: boolean;
+  generationMode: string;
+  retrievalMode: string;
+  groundedness?: number;
+  citationValidity?: number;
 };
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -228,6 +232,9 @@ export default function Home() {
         citations?: string[];
         evidence?: Array<{ citation: string; filename: string; text: string; score: number; chunk_index: number }>;
         abstained?: boolean;
+        generation_mode?: string;
+        retrieval?: { mode?: string };
+        evaluation?: { groundedness?: number; citation_validity?: number };
       };
       const citations = Array.isArray(data.citations) ? data.citations : [];
       setMessage({
@@ -236,6 +243,10 @@ export default function Home() {
         domain: data.domain,
         citations,
         abstained: data.abstained ?? citations.length === 0,
+        generationMode: data.generation_mode ?? "unknown",
+        retrievalMode: data.retrieval?.mode ?? "none",
+        groundedness: data.evaluation?.groundedness,
+        citationValidity: data.evaluation?.citation_validity,
         sources: (data.evidence ?? []).map((item) => ({
           id: item.citation,
           title: item.filename,
@@ -320,7 +331,7 @@ export default function Home() {
               {!message && !isQuerying && !queryError && <div className="welcome-state"><div className="welcome-icon"><Icon name="sparkles" size={22} /></div><h2>What would you like to know?</h2><p>Search across your indexed documents to get a grounded answer with clear sources.</p><div className="suggestion-list">{suggestedQuestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => void handleQuery(undefined, suggestion)}><span>{suggestion}</span><Icon name="arrow-up" size={15} /></button>)}</div></div>}
               {isQuerying && <div className="loading-state"><div className="loading-orb"><span /><span /><span /></div><h2>Searching your knowledge...</h2><p>Retrieving the most relevant passages and checking their sources.</p><div className="loading-lines"><span /><span /><span /></div></div>}
               {queryError && !isQuerying && <div className="error-state"><div className="error-icon"><Icon name="info" size={21} /></div><h2>We couldn’t complete that search.</h2><p>{queryError}</p><button className="secondary-button" type="button" onClick={() => void handleQuery(undefined, activeQuery)}>Try again <Icon name="arrow-up" size={15} /></button></div>}
-               {message && !isQuerying && <div className="answer-content"><div className="question-row"><div className="question-avatar">JD</div><div><span className="answer-label">Your question</span><p>{message.question}</p></div></div><div className="assistant-row"><div className="assistant-avatar"><Icon name="sparkles" size={16} /></div><div className="assistant-copy"><div className="answer-meta"><span>Answer</span>{message.domain && <span className="domain-chip">{message.domain}</span>}<span className="answer-time">Just now</span></div><p className="answer-text">{message.answer}</p>{message.abstained && <div className="no-sources"><Icon name="info" size={15} /> No indexed passage matched this question, so the assistant abstained.</div>}{message.sources.length > 0 && <div className="sources-section"><div className="sources-heading"><span>Evidence passages</span><span>{message.sources.length} result{message.sources.length === 1 ? "" : "s"}</span></div><div className="source-list">{message.sources.map((source) => <SourceCard key={source.id} source={source} />)}</div></div>}</div></div></div>}
+               {message && !isQuerying && <div className="answer-content"><div className="question-row"><div className="question-avatar">JD</div><div><span className="answer-label">Your question</span><p>{message.question}</p></div></div><div className="assistant-row"><div className="assistant-avatar"><Icon name="sparkles" size={16} /></div><div className="assistant-copy"><div className="answer-meta"><span>Answer</span>{message.domain && <span className="domain-chip">{message.domain}</span>}<span className="signal-chip">{message.generationMode}</span><span className="signal-chip">{message.retrievalMode}</span><span className="answer-time">Just now</span></div><p className="answer-text">{message.answer}</p>{message.abstained && <div className="no-sources"><Icon name="info" size={15} /> No indexed passage matched this question, so the assistant abstained.</div>}{message.sources.length > 0 && <div className="sources-section"><div className="sources-heading"><span>Evidence passages</span><span>{message.sources.length} result{message.sources.length === 1 ? "" : "s"}{message.groundedness !== undefined ? ` · ${Math.round(message.groundedness * 100)}% grounded` : ""}{message.citationValidity !== undefined ? ` · ${Math.round(message.citationValidity * 100)}% cited` : ""}</span></div><div className="source-list">{message.sources.map((source) => <SourceCard key={source.id} source={source} />)}</div></div>}</div></div></div>}
             </div>
 
              <form className="composer" onSubmit={handleQuery}><div className="composer-top"><textarea value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ask a question about your knowledge base..." rows={2} aria-label="Ask a question" /><button className="send-button" type="submit" disabled={!query.trim() || isQuerying} aria-label="Send question"><Icon name="arrow-up" size={18} /></button></div><div className="composer-bottom"><div className="composer-hint"><Icon name="sparkles" size={14} /> Answers are assembled from indexed evidence</div><span className="keyboard-hint">Press <kbd>⌘</kbd><kbd>↵</kbd> to send</span></div></form>
