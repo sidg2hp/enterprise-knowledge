@@ -84,3 +84,22 @@ def test_health_and_readiness_endpoints(store):
     client = TestClient(app)
     assert client.get("/healthz").json() == {"status": "ok"}
     assert client.get("/readyz").json() == {"status": "ready", "document_count": 0}
+
+
+def test_query_returns_quality_and_operational_metadata(store):
+    store.upsert(ingest_document("engineering.md", b"All production API changes require peer review."))
+    client = TestClient(app)
+    response = client.post(
+        "/query",
+        headers={"X-Request-ID": "test-request-123"},
+        json={"query": "What is required before a production API change?"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["request_id"] == "test-request-123"
+    assert response.headers["X-Request-ID"] == "test-request-123"
+    assert payload["generation_mode"] == "extractive"
+    assert payload["retrieval"]["mode"] == "bm25"
+    assert payload["graph_context"]["status"]["enabled"] is False
+    assert payload["evaluation"]["citation_validity"] == 1.0

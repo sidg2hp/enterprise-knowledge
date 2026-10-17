@@ -16,9 +16,11 @@ from langgraph.graph import END, StateGraph
 try:  # Support both `uvicorn main:app` from backend/ and package imports.
     from .graph_adapter import get_graph_adapter
     from .knowledge import get_document_store
+    from .llm import try_generate_grounded_answer
 except ImportError:  # pragma: no cover - exercised by the direct server command
     from graph_adapter import get_graph_adapter
     from knowledge import get_document_store
+    from llm import try_generate_grounded_answer
 
 
 DOMAINS = ("HR", "POLICY", "PRECEDENT", "FINANCE", "ENGINEERING", "GENERAL")
@@ -125,6 +127,7 @@ class GraphState(TypedDict, total=False):
     response: str
     citations: list[str]
     abstained: bool
+    generation_mode: str
 
 
 def _keyword_matches(query: str, keywords: tuple[str, ...]) -> list[str]:
@@ -243,12 +246,28 @@ def synthesizer(state: GraphState) -> dict[str, Any]:
             "response": "I don't have enough evidence in the knowledge base to answer that.",
             "citations": [],
             "abstained": True,
+            "generation_mode": "abstention",
         }
-    excerpts = [f"{item['text']} [{item['citation']}]" for item in evidence]
+    citations = [item["citation"] for item in evidence]
+    generated, generation_mode = try_generate_grounded_answer(
+        state.get("query", ""),
+        state.get("domain", "GENERAL"),
+        evidence,
+        state.get("graph_context", []),
+    )
+    if generated:
+        response = generated
+        missing_citations = [citation for citation in citations if citation not in response]
+        if missing_citations:
+            response = f"{response}\nSources: {', '.join(f'[{citation}]' for citation in missing_citations)}"
+    else:
+        excerpts = [f"{item['text']} [{item['citation']}]" for item in evidence]
+        response = "Based on the knowledge base: " + " ".join(excerpts)
     return {
-        "response": "Based on the knowledge base: " + " ".join(excerpts),
-        "citations": [item["citation"] for item in evidence],
+        "response": response,
+        "citations": citations,
         "abstained": False,
+        "generation_mode": generation_mode,
     }
 
 

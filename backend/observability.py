@@ -94,6 +94,7 @@ class JsonEventLogger:
         abstained: bool = False,
         latency_ms: float | None = None,
         error: str | None = None,
+        **metadata: Any,
     ) -> dict[str, Any]:
         """Log query metadata; the query text itself is never included."""
 
@@ -108,6 +109,7 @@ class JsonEventLogger:
             fields["latency_ms"] = round(latency_ms, 3)
         if error is not None:
             fields["error"] = error
+        fields.update(metadata)
         return self.emit("query", request_id, **fields)
 
     def ingestion(

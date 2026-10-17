@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "description": "Small deterministic regression corpus for retrieval and grounding checks.",
+  "documents": [
+    {
+      "filename": "remote-work-policy.md",
+      "content": "# Remote work policy\n\nEmployees may work remotely up to three days per week with manager approval."
+    },
+    {
+      "filename": "engineering-handbook.md",
+      "content": "# Engineering handbook\n\nAll customer-facing changes require peer review before release. Production incidents must have a written postmortem."
+    },
+    {
+      "filename": "finance-controls.md",
+      "content": "# Finance controls\n\nInvoices above 10000 require approval from the finance lead before payment."
+    }
+  ],
+  "cases": [
+    {
+      "query": "How many days can employees work remotely?",
+      "document": "remote-work-policy.md"
+    },
+    {
+      "query": "What is required before a customer-facing release?",
+      "document": "engineering-handbook.md"
+    },
+    {
+      "query": "Who approves invoices above 10000 before payment?",
+      "document": "finance-controls.md"
+    },
+    {
+      "query": "What is the office parking allowance?",
+      "document": null
+    }
+  ]
+}
