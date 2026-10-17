@@ -17,6 +17,35 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
+try:  # Support both `uvicorn main:app` from backend/ and package imports.
+    from .retrieval import (
+        BM25Hit,
+        BM25Ranker,
+        DeterministicHashEmbedder,
+        EmbeddingError,
+        EmbeddingProvider,
+        FAISSVectorIndex,
+        FallbackEmbeddingProvider,
+        HybridRetriever,
+        OllamaEmbeddingAdapter,
+        OptionalDependencyError,
+        PurePythonVectorIndex,
+    )
+except ImportError:  # pragma: no cover - exercised by direct server commands
+    from retrieval import (
+        BM25Hit,
+        BM25Ranker,
+        DeterministicHashEmbedder,
+        EmbeddingError,
+        EmbeddingProvider,
+        FAISSVectorIndex,
+        FallbackEmbeddingProvider,
+        HybridRetriever,
+        OllamaEmbeddingAdapter,
+        OptionalDependencyError,
+        PurePythonVectorIndex,
+    )
+
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".markdown"}
 MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
@@ -169,9 +198,14 @@ def _tokens(value: str) -> list[str]:
 
 
 class DocumentStore:
-    """Small atomic JSON-backed document store and lexical retriever."""
+    """Small atomic JSON-backed document store and modular hybrid retriever.
 
-    def __init__(self, path: str | Path | None = None):
+    The default mode is deterministic BM25.  Set ``KNOWLEDGE_RETRIEVER_MODE``
+    to ``hybrid`` or ``vector`` to opt into embeddings; Ollama and FAISS remain
+    optional and degrade to the local hash embedder and vector index.
+    """
+
+    def __init__(self, path: str | Path | None = None, retriever: HybridRetriever | None = None):
         configured = (
             path
             or os.getenv("KNOWLEDGE_STORE_PATH")
@@ -179,6 +213,7 @@ class DocumentStore:
         )
         self.path = Path(configured)
         self._lock = RLock()
+        self.retriever = retriever or HybridRetriever.from_environment(tokenizer=_tokens)
 
     def _read(self) -> dict[str, Any]:
         if not self.path.exists():
@@ -238,35 +273,21 @@ class DocumentStore:
             return True
 
     def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
-        query_tokens = _tokens(query)
-        if not query_tokens:
-            return []
-        unique_query_tokens = set(query_tokens)
-        results: list[dict[str, Any]] = []
         with self._lock:
             documents = self._read()["documents"].values()
-            for document in documents:
-                for chunk in document.get("chunks", []):
-                    chunk_tokens = _tokens(chunk["text"])
-                    counts = {token: chunk_tokens.count(token) for token in unique_query_tokens}
-                    matched_terms = sorted(token for token, count in counts.items() if count)
-                    if not matched_terms:
-                        continue
-                    score = sum(min(counts[token], 3) for token in matched_terms) / len(unique_query_tokens)
-                    results.append(
-                        {
-                            "citation": chunk["citation"],
-                            "chunk_id": chunk["chunk_id"],
-                            "document_id": chunk["document_id"],
-                            "filename": document["filename"],
-                            "chunk_index": chunk["chunk_index"],
-                            "text": chunk["text"],
-                            "score": round(score, 6),
-                            "matched_terms": matched_terms,
-                        }
-                    )
-        results.sort(key=lambda result: (-result["score"], result["citation"]))
-        return results[: max(1, limit)]
+            records = [
+                {
+                    "citation": chunk["citation"],
+                    "chunk_id": chunk["chunk_id"],
+                    "document_id": chunk["document_id"],
+                    "filename": document["filename"],
+                    "chunk_index": chunk["chunk_index"],
+                    "text": chunk["text"],
+                }
+                for document in documents
+                for chunk in document.get("chunks", [])
+            ]
+        return self.retriever.retrieve(query, records, max(1, limit))
 
 
 _default_store = DocumentStore()
