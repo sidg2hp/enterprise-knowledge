@@ -1,10 +1,24 @@
 # Knowwise — Enterprise Knowledge Assistant
 
+[![CI](https://github.com/sidg2hp/enterprise-knowledge/actions/workflows/ci.yml/badge.svg)](https://github.com/sidg2hp/enterprise-knowledge/actions/workflows/ci.yml)
+[![Repository](https://img.shields.io/badge/repository-GitHub-181717?logo=github)](https://github.com/sidg2hp/enterprise-knowledge)
+
 Knowwise is an evidence-first internal knowledge assistant. A user indexes a
 UTF-8 text or Markdown document, asks a question, and receives a deterministic
 retrieval result with inspectable passages and stable citation IDs. The
 application is intentionally small enough to run offline and explain in an
 engineering interview.
+
+## Current project status
+
+| Area | Current status |
+| --- | --- |
+| Local application | Working end-to-end vertical slice |
+| Supported ingestion | UTF-8 `.txt`, `.md`, and `.markdown` |
+| Retrieval | Deterministic lexical retrieval |
+| Answer behavior | Extractive responses with evidence and abstention |
+| Automated checks | Backend pytest plus frontend lint, typecheck, and build |
+| Public deployment | Not currently published; run locally with Docker Compose |
 
 ## What is implemented
 
