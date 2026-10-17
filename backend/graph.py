@@ -1,34 +1,231 @@
-"""LangGraph workflow for grounded, extractive knowledge queries."""
+"""Deterministic multi-domain LangGraph workflow for grounded queries.
+
+The workflow has a small specialist node for each supported domain, followed by
+one shared retrieval/synthesis/evaluation path.  Specialists add routing
+metadata, not invented answers.  The persisted lexical store remains the
+offline source of evidence and the optional graph adapter contributes context
+only when explicitly configured.
+"""
+
+from __future__ import annotations
 
 from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
 try:  # Support both `uvicorn main:app` from backend/ and package imports.
+    from .graph_adapter import get_graph_adapter
     from .knowledge import get_document_store
 except ImportError:  # pragma: no cover - exercised by the direct server command
+    from graph_adapter import get_graph_adapter
     from knowledge import get_document_store
+
+
+DOMAINS = ("HR", "POLICY", "PRECEDENT", "FINANCE", "ENGINEERING", "GENERAL")
+
+_DOMAIN_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "HR": (
+        "resume",
+        "candidate",
+        "hire",
+        "hr",
+        "recruit",
+        "employee",
+        "interview",
+        "onboarding",
+        "benefits",
+        "performance",
+    ),
+    "POLICY": (
+        "policy",
+        "policies",
+        "audit",
+        "compliance",
+        "regulation",
+        "rule",
+        "procedure",
+        "guideline",
+        "governance",
+    ),
+    "PRECEDENT": (
+        "precedent",
+        "history",
+        "historical",
+        "previous",
+        "prior",
+        "case",
+        "decision",
+        "ruling",
+    ),
+    "FINANCE": (
+        "finance",
+        "financial",
+        "budget",
+        "cost",
+        "revenue",
+        "expense",
+        "invoice",
+        "pricing",
+        "forecast",
+        "payroll",
+        "profit",
+    ),
+    "ENGINEERING": (
+        "engineering",
+        "engineer",
+        "code",
+        "software",
+        "api",
+        "architecture",
+        "deploy",
+        "deployment",
+        "bug",
+        "database",
+        "langgraph",
+        "infrastructure",
+    ),
+}
+
+_DOMAIN_PROFILES: dict[str, dict[str, str]] = {
+    "HR": {
+        "specialist": "hr_agent",
+        "focus": "people, recruiting, employee, and talent records",
+    },
+    "POLICY": {
+        "specialist": "policy_agent",
+        "focus": "rules, controls, procedures, and compliance guidance",
+    },
+    "PRECEDENT": {
+        "specialist": "precedent_agent",
+        "focus": "prior decisions, historical cases, and institutional precedent",
+    },
+    "FINANCE": {
+        "specialist": "finance_agent",
+        "focus": "budgets, costs, financial operations, and forecasts",
+    },
+    "ENGINEERING": {
+        "specialist": "engineering_agent",
+        "focus": "software, systems, architecture, and technical operations",
+    },
+    "GENERAL": {
+        "specialist": "general_agent",
+        "focus": "cross-functional enterprise knowledge",
+    },
+}
 
 
 class GraphState(TypedDict, total=False):
     query: str
     domain: str
+    domain_metadata: dict[str, Any]
+    agent_metadata: dict[str, Any]
     evidence: list[dict[str, Any]]
+    graph_context: list[dict[str, Any]]
+    graph_context_status: dict[str, Any]
     response: str
     citations: list[str]
     abstained: bool
 
 
-def query_analyzer(state: GraphState) -> dict[str, str]:
-    query = state.get("query", "").lower()
-    domain = "GENERAL"
-    if any(word in query for word in ("resume", "candidate", "hire", "hr", "recruit")):
-        domain = "HR"
-    elif any(word in query for word in ("policy", "audit", "compliance")):
-        domain = "POLICY"
-    elif any(word in query for word in ("precedent", "history", "historical")):
-        domain = "PRECEDENT"
-    return {"domain": domain}
+def _keyword_matches(query: str, keywords: tuple[str, ...]) -> list[str]:
+    # Word boundaries avoid classifying "costume" as FINANCE because it starts
+    # with "cost", while keeping the matching rules deterministic and inspectable.
+    import re
+
+    lowered = query.lower()
+    return [word for word in keywords if re.search(rf"\b{re.escape(word)}\b", lowered)]
+
+
+def query_analyzer(state: GraphState) -> dict[str, Any]:
+    """Classify a query and expose enough metadata to audit routing."""
+
+    query = state.get("query", "").strip()
+    matches = {domain: _keyword_matches(query, keywords) for domain, keywords in _DOMAIN_KEYWORDS.items()}
+    ranked = sorted(matches, key=lambda domain: (-len(matches[domain]), DOMAINS.index(domain)))
+    best = ranked[0] if ranked and matches[ranked[0]] else "GENERAL"
+    matched = matches.get(best, [])
+    score = len(matched)
+    confidence = round(min(1.0, score / 3), 3) if best != "GENERAL" else 0.0
+    profile = _DOMAIN_PROFILES[best]
+    metadata = {
+        "domain": best,
+        "confidence": confidence,
+        "matched_keywords": matched,
+        "routing_reason": (
+            f"matched {', '.join(matched)}"
+            if matched
+            else "no specialist keywords matched; using cross-functional routing"
+        ),
+        "specialist": profile["specialist"],
+    }
+    return {"domain": best, "domain_metadata": metadata}
+
+
+def _specialist_node(state: GraphState, domain: str) -> dict[str, Any]:
+    profile = _DOMAIN_PROFILES[domain]
+    metadata = dict(state.get("domain_metadata", {}))
+    metadata.update(
+        {
+            "domain": domain,
+            "specialist": profile["specialist"],
+            "focus": profile["focus"],
+            "evidence_policy": "Use retrieved passages only; abstain when they do not support an answer.",
+        }
+    )
+    return {
+        "domain": domain,
+        "domain_metadata": metadata,
+        "agent_metadata": {
+            "name": profile["specialist"],
+            "domain": domain,
+            "focus": profile["focus"],
+            "mode": "deterministic_extract_then_synthesize",
+        },
+    }
+
+
+def hr_agent(state: GraphState) -> dict[str, Any]:
+    return _specialist_node(state, "HR")
+
+
+def policy_agent(state: GraphState) -> dict[str, Any]:
+    return _specialist_node(state, "POLICY")
+
+
+def precedent_agent(state: GraphState) -> dict[str, Any]:
+    return _specialist_node(state, "PRECEDENT")
+
+
+def finance_agent(state: GraphState) -> dict[str, Any]:
+    return _specialist_node(state, "FINANCE")
+
+
+def engineering_agent(state: GraphState) -> dict[str, Any]:
+    return _specialist_node(state, "ENGINEERING")
+
+
+def general_agent(state: GraphState) -> dict[str, Any]:
+    return _specialist_node(state, "GENERAL")
+
+
+def _route_domain(state: GraphState) -> str:
+    domain = state.get("domain", "GENERAL")
+    return domain if domain in DOMAINS else "GENERAL"
+
+
+def graph_context_retriever(state: GraphState) -> dict[str, Any]:
+    """Collect optional graph context without making it a required dependency."""
+
+    adapter = get_graph_adapter()
+    status = adapter.status()
+    try:
+        context = adapter.search_context(state.get("query", ""))
+        status = adapter.status()
+    except (ValueError, RuntimeError, OSError):
+        # The graph is an enhancement; lexical retrieval must keep working.
+        context = []
+        status = {**status, "enabled": False, "reason": "query_unavailable"}
+    return {"graph_context": context, "graph_context_status": status}
 
 
 def real_retriever(state: GraphState) -> dict[str, Any]:
@@ -38,6 +235,8 @@ def real_retriever(state: GraphState) -> dict[str, Any]:
 
 
 def synthesizer(state: GraphState) -> dict[str, Any]:
+    """Use one shared, extractive synthesis path for every specialist."""
+
     evidence = state.get("evidence", [])
     if not evidence:
         return {
@@ -66,12 +265,44 @@ def evaluator(state: GraphState) -> dict[str, Any]:
 
 workflow = StateGraph(GraphState)
 workflow.add_node("query_analyzer", query_analyzer)
+workflow.add_node("hr_agent", hr_agent)
+workflow.add_node("policy_agent", policy_agent)
+workflow.add_node("precedent_agent", precedent_agent)
+workflow.add_node("finance_agent", finance_agent)
+workflow.add_node("engineering_agent", engineering_agent)
+workflow.add_node("general_agent", general_agent)
+workflow.add_node("graph_context", graph_context_retriever)
 workflow.add_node("retriever", real_retriever)
 workflow.add_node("synthesizer", synthesizer)
 workflow.add_node("evaluator", evaluator)
 workflow.set_entry_point("query_analyzer")
-workflow.add_edge("query_analyzer", "retriever")
+workflow.add_conditional_edges(
+    "query_analyzer",
+    _route_domain,
+    {domain: f"{domain.lower()}_agent" for domain in DOMAINS},
+)
+for _domain in DOMAINS:
+    workflow.add_edge(f"{_domain.lower()}_agent", "graph_context")
+workflow.add_edge("graph_context", "retriever")
 workflow.add_edge("retriever", "synthesizer")
 workflow.add_edge("synthesizer", "evaluator")
 workflow.add_edge("evaluator", END)
 app_graph = workflow.compile()
+
+
+__all__ = [
+    "DOMAINS",
+    "GraphState",
+    "app_graph",
+    "engineering_agent",
+    "evaluator",
+    "finance_agent",
+    "general_agent",
+    "graph_context_retriever",
+    "hr_agent",
+    "policy_agent",
+    "precedent_agent",
+    "query_analyzer",
+    "real_retriever",
+    "synthesizer",
+]
