@@ -4,7 +4,10 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
-from knowledge import get_document_store
+try:  # Support both `uvicorn main:app` from backend/ and package imports.
+    from .knowledge import get_document_store
+except ImportError:  # pragma: no cover - exercised by the direct server command
+    from knowledge import get_document_store
 
 
 class GraphState(TypedDict, total=False):

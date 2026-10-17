@@ -3,8 +3,12 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from graph import app_graph
-from knowledge import DocumentError, get_document_store, ingest_document
+try:  # Support both `uvicorn main:app` from backend/ and package imports.
+    from .graph import app_graph
+    from .knowledge import DocumentError, get_document_store, ingest_document
+except ImportError:  # pragma: no cover - exercised by the direct server command
+    from graph import app_graph
+    from knowledge import DocumentError, get_document_store, ingest_document
 
 
 app = FastAPI(title="Enterprise Knowledge Assistant API")
