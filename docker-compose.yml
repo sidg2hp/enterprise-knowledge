@@ -7,6 +7,16 @@ services:
     environment:
       KNOWLEDGE_STORE_PATH: /app/data/documents.json
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      KNOWLEDGE_RETRIEVER_MODE: ${KNOWLEDGE_RETRIEVER_MODE:-bm25}
+      KNOWLEDGE_LEXICAL_WEIGHT: ${KNOWLEDGE_LEXICAL_WEIGHT:-0.7}
+      KNOWLEDGE_VECTOR_WEIGHT: ${KNOWLEDGE_VECTOR_WEIGHT:-0.3}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2}
+      NEO4J_URI: ${NEO4J_URI:-}
+      NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
     volumes:
       - knowledge_data:/app/data
     healthcheck:
@@ -32,5 +42,14 @@ services:
       backend:
         condition: service_healthy
 
+  neo4j:
+    image: neo4j:5.28-community
+    profiles: ["graph"]
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/change-me}
+    volumes:
+      - neo4j_data:/data
+
 volumes:
   knowledge_data:
+  neo4j_data:

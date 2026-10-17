@@ -1,7 +1,8 @@
 FROM python:3.10.8-slim
 WORKDIR /app
 COPY requirements.lock .
-RUN pip install --no-cache-dir -r requirements.lock
+COPY requirements.optional.lock .
+RUN pip install --no-cache-dir -r requirements.lock -r requirements.optional.lock
 COPY . .
 RUN addgroup --system app && adduser --system --ingroup app app \
     && mkdir -p /app/data \

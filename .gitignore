@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .env
 backend/data/
+.opencode/omnirush/inbox/
 .pytest_cache/
 node_modules/
 .next/
