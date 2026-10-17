@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import os
+
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 try:  # Support both `uvicorn main:app` from backend/ and package imports.
@@ -11,7 +14,24 @@ except ImportError:  # pragma: no cover - exercised by the direct server command
     from knowledge import DocumentError, get_document_store, ingest_document
 
 
-app = FastAPI(title="Enterprise Knowledge Assistant API")
+app = FastAPI(
+    title="Enterprise Knowledge Assistant API",
+    version="0.2.0",
+    description="Evidence-grounded document search with deterministic citations.",
+)
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["*"],
+)
 
 
 class QueryRequest(BaseModel):
@@ -20,7 +40,29 @@ class QueryRequest(BaseModel):
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to the Enterprise Knowledge Assistant API"}
+    return {
+        "message": "Enterprise Knowledge Assistant API",
+        "docs": "/docs",
+        "health": "/healthz",
+    }
+
+
+@app.get("/healthz")
+def health_check():
+    """Liveness endpoint used by local containers and deployment probes."""
+
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readiness_check():
+    """Report whether the JSON-backed knowledge store can be read."""
+
+    try:
+        documents = get_document_store().list_documents()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="knowledge store is unavailable") from exc
+    return {"status": "ready", "document_count": len(documents)}
 
 
 @app.post("/query")

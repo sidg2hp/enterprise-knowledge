@@ -1,52 +1,42 @@
-Enterprise Knowledge Assistant - How to Use
+Knowwise - How to Use
 
-1. Does this project use an LLM?
-Yes, this project is designed to be powered by Large Language Models (LLMs) through LangChain and LangGraph. 
-Currently, the backend scaffolding is set up to support:
-- Local LLMs via Ollama (e.g., Llama 3) for data privacy.
-- Cloud LLMs via OpenAI (e.g., GPT-4) for advanced reasoning.
+This repository now implements an offline-friendly evidence-first vertical
+slice. It accepts UTF-8 TXT and Markdown files, stores deterministic chunks,
+and returns extractive answers with citations that resolve to returned source
+passages. It does not currently use an LLM, PDF parser, Neo4j, FAISS, or a
+hosted vector database.
 
-The LLMs are used to:
-- Analyze your query (e.g., figure out if you're asking about HR, Policy, or Precedent).
-- Synthesize the final response by reading the retrieved documents.
-- Evaluate the response to ensure every sentence has a traceable citation.
+1. Start the application
 
-2. Is the Knowledge Graph feature included?
-Yes! The Knowledge Graph feature is a core component of this architecture, implemented using **Neo4j**. 
-- The infrastructure for the Knowledge Graph is already fully set up and containerized in the `docker-compose.yml` file. When you run Docker, a local Neo4j database instance boots up on port 7474.
-- The `backend/requirements.txt` already includes the official Neo4j Python drivers.
-- The architecture implements **GraphRAG** (Graph Retrieval-Augmented Generation). While the current backend Python code (`backend/graph.py`) has the LangGraph pipeline wired up with a mocked `hybrid_retriever` node as a placeholder, the next step in development would be to connect that node directly to your Neo4j instance to perform live Cypher queries.
+Recommended:
+  docker compose up --build
 
-3. How does the data retrieval work?
-This project uses "GraphRAG" (Graph Retrieval-Augmented Generation). When you ask a question:
-- FAISS (Vector Database) finds semantically similar text.
-- BM25 finds exact keyword matches.
-- Neo4j (Graph Database) maps the relationships between entities (e.g., "Person A" -> "Worked On" -> "Project B").
-The LLM reads this combined data to answer your question securely.
+Local backend:
+  cd backend
+  python -m venv .venv
+  .venv\Scripts\python.exe -m pip install -r requirements.lock
+  .venv\Scripts\python.exe -m uvicorn main:app --reload
 
-3. How to Operate the Project
+Local frontend, in a second terminal:
+  cd frontend
+  npm ci
+  npm run dev
 
-Option A: Run everything with Docker (Recommended)
-This requires Docker and Docker Compose installed on your system.
-1. Open a terminal in the root directory (where docker-compose.yml is located).
-2. Run: `docker-compose up --build`
-3. This will start:
-   - The Next.js Frontend UI at http://localhost:3000
-   - The FastAPI Backend at http://localhost:8000
-   - The Neo4j Graph Database at http://localhost:7474
+2. Use the UI
 
-Option B: Run Locally (Without Docker)
+Open http://localhost:3000. Add `samples/handbook.md`, wait for it to appear
+as Ready, then ask: "What does the handbook require?" Expand an evidence card
+to inspect the exact passage and stable citation ID. Ask an unrelated question
+to see the explicit abstention state.
 
-Backend:
-1. Navigate to the backend folder: `cd backend`
-2. Activate the virtual environment: `.\venv\Scripts\activate`
-3. Start the API server: `uvicorn main:app --reload`
-4. You can access the API docs at http://localhost:8000/docs
+3. Use the API
 
-Frontend:
-1. Navigate to the frontend folder: `cd frontend`
-2. Start the development server: `npm run dev`
-3. Open http://localhost:3000 in your browser.
+  curl -F "file=@samples/handbook.md" http://localhost:8000/documents
+  curl http://localhost:8000/documents
+  curl -H "Content-Type: application/json" \
+    -d '{"query":"What does the handbook require?"}' \
+    http://localhost:8000/query
 
-4. Interacting with the Assistant
-Once the services are running, you can use the Next.js frontend to type a query. The backend will route your query to the specialized agent (e.g., if you ask for a resume, it hits the HR Agent). The agent retrieves mocked data and returns a response appended with traceable citations (e.g., [DocID: HR-101]).
+Operational endpoints are `/healthz` for liveness and `/readyz` for the
+knowledge-store readiness check. See README.md for the complete setup,
+testing, deployment, security limitations, and roadmap.

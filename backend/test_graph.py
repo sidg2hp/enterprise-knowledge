@@ -78,3 +78,9 @@ def test_documents_api_rejects_unsupported_files(store):
     client = TestClient(app)
     response = client.post("/documents", files={"file": ("notes.pdf", b"not supported", "application/pdf")})
     assert response.status_code == 400
+
+
+def test_health_and_readiness_endpoints(store):
+    client = TestClient(app)
+    assert client.get("/healthz").json() == {"status": "ok"}
+    assert client.get("/readyz").json() == {"status": "ready", "document_count": 0}

@@ -3,6 +3,7 @@
 import {
   ChangeEvent,
   FormEvent,
+  useEffect,
   useRef,
   useState,
 } from "react";
@@ -45,7 +46,9 @@ type Source = {
   id: string;
   title: string;
   detail: string;
-  score: string;
+  score: number;
+  snippet: string;
+  citation: string;
 };
 
 type AssistantMessage = {
@@ -54,44 +57,34 @@ type AssistantMessage = {
   domain?: string;
   citations: string[];
   sources: Source[];
+  abstained: boolean;
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
-const starterDocuments: KnowledgeDocument[] = [
-  {
-    id: "hr-101",
-    name: "Employee Handbook 2024.pdf",
-    type: "PDF",
-    size: "2.4 MB",
-    updated: "Today, 9:42 AM",
+type ApiDocument = {
+  document_id: string;
+  filename: string;
+  extension: string;
+  size_bytes: number;
+  chunk_count: number;
+};
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function mapDocument(document: ApiDocument): KnowledgeDocument {
+  return {
+    id: document.document_id,
+    name: document.filename,
+    type: document.extension.replace(".", "").toUpperCase(),
+    size: formatFileSize(document.size_bytes),
+    updated: `${document.chunk_count} chunk${document.chunk_count === 1 ? "" : "s"}`,
     status: "Ready",
-  },
-  {
-    id: "pol-202",
-    name: "Remote Work Policy.docx",
-    type: "DOCX",
-    size: "842 KB",
-    updated: "Yesterday",
-    status: "Ready",
-  },
-  {
-    id: "prec-303",
-    name: "Project X — Retrospective.pdf",
-    type: "PDF",
-    size: "1.8 MB",
-    updated: "Oct 18, 2024",
-    status: "Ready",
-  },
-  {
-    id: "gen-000",
-    name: "Company Overview 2024.pdf",
-    type: "PDF",
-    size: "3.1 MB",
-    updated: "Oct 15, 2024",
-    status: "Needs review",
-  },
-];
+  };
+}
 
 const suggestedQuestions = [
   "What is our remote work policy?",
@@ -150,35 +143,66 @@ function StatusBadge({ status }: { status: DocumentStatus }) {
 }
 
 function SourceCard({ source }: { source: Source }) {
+  const [expanded, setExpanded] = useState(false);
   return (
     <article className="source-card">
       <div className="source-icon"><Icon name="file-text" size={16} /></div>
       <div className="source-copy">
         <div className="source-title-row">
           <h4>{source.title}</h4>
-          <span>{source.score} match</span>
+          <span>{Math.round(source.score * 100)}% match</span>
         </div>
-        <p>{source.detail}</p>
-        <button className="source-link" type="button">View source <Icon name="chevron-right" size={13} /></button>
+        <p>{source.detail} · {source.citation}</p>
+        {expanded && <blockquote className="source-snippet">“{source.snippet}”</blockquote>}
+        <button className="source-link" type="button" onClick={() => setExpanded((value) => !value)}>
+          {expanded ? "Hide passage" : "View passage"} <Icon name="chevron-right" size={13} />
+        </button>
       </div>
     </article>
   );
 }
 
 export default function Home() {
-  const [documents, setDocuments] = useState<KnowledgeDocument[]>(starterDocuments);
+  const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [query, setQuery] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
   const [message, setMessage] = useState<AssistantMessage | null>(null);
   const [isQuerying, setIsQuerying] = useState(false);
   const [queryError, setQueryError] = useState("");
   const [uploadError, setUploadError] = useState("");
+  const [documentError, setDocumentError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [filter, setFilter] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const readyCount = documents.filter((document) => document.status === "Ready").length;
   const filteredDocuments = documents.filter((document) => document.name.toLowerCase().includes(filter.toLowerCase()));
+
+  async function refreshDocuments() {
+    const response = await fetch(`${API_URL}/documents`);
+    if (!response.ok) throw new Error(`Document request failed with status ${response.status}`);
+    const data = (await response.json()) as { documents?: ApiDocument[] };
+    setDocuments((data.documents ?? []).map(mapDocument));
+    setDocumentError("");
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_URL}/documents`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Document request failed with status ${response.status}`);
+        return response.json() as Promise<{ documents?: ApiDocument[] }>;
+      })
+      .then((data) => {
+        if (!cancelled) setDocuments((data.documents ?? []).map(mapDocument));
+      })
+      .catch(() => {
+        if (!cancelled) setDocumentError("The knowledge base is unavailable. Start the API to load indexed documents.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleQuery(event?: FormEvent<HTMLFormElement>, suggestedQuery?: string) {
     event?.preventDefault();
@@ -198,20 +222,28 @@ export default function Home() {
         body: JSON.stringify({ query: nextQuery }),
       });
       if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
-      const data = (await response.json()) as { response?: string; domain?: string; citations?: string[] };
-      const citations = Array.isArray(data.citations) ? data.citations : [];
-      const sourceDetails: Record<string, Source> = {
-        "HR-101": { id: "HR-101", title: "Employee Handbook 2024", detail: "People & culture · Section 4.2", score: "94%" },
-        "POL-202": { id: "POL-202", title: "Remote Work Policy", detail: "Policies · Section 2.1", score: "91%" },
-        "PREC-303": { id: "PREC-303", title: "Project X — Retrospective", detail: "Projects · Outcomes & learnings", score: "88%" },
-        "GEN-000": { id: "GEN-000", title: "Company Overview 2024", detail: "Company · About the organization", score: "86%" },
+      const data = (await response.json()) as {
+        response?: string;
+        domain?: string;
+        citations?: string[];
+        evidence?: Array<{ citation: string; filename: string; text: string; score: number; chunk_index: number }>;
+        abstained?: boolean;
       };
+      const citations = Array.isArray(data.citations) ? data.citations : [];
       setMessage({
         question: nextQuery,
         answer: data.response || "I found no answer in the connected knowledge base.",
         domain: data.domain,
         citations,
-        sources: citations.map((citation) => sourceDetails[citation] ?? { id: citation, title: citation, detail: "Knowledge base source", score: "—" }),
+        abstained: data.abstained ?? citations.length === 0,
+        sources: (data.evidence ?? []).map((item) => ({
+          id: item.citation,
+          title: item.filename,
+          detail: `Chunk ${item.chunk_index + 1}`,
+          score: item.score,
+          snippet: item.text,
+          citation: item.citation,
+        })),
       });
     } catch {
       setQueryError(`Couldn’t reach the knowledge service at ${API_URL}. Check that the API is running and try again.`);
@@ -238,18 +270,13 @@ export default function Home() {
       formData.append("file", file);
       const response = await fetch(`${API_URL}/documents`, { method: "POST", body: formData });
       if (!response.ok) throw new Error("Upload failed");
-      setDocuments((current) => current.map((document) => document.id === temporaryId ? { ...document, updated: "Just now", status: "Ready" } : document));
+      await refreshDocuments();
     } catch {
       setDocuments((current) => current.filter((document) => document.id !== temporaryId));
       setUploadError(`We couldn’t upload ${file.name}. Make sure the document service is available and try again.`);
     } finally {
       setUploading(false);
     }
-  }
-
-  function formatFileSize(bytes: number) {
-    if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   return (
@@ -293,7 +320,7 @@ export default function Home() {
               {!message && !isQuerying && !queryError && <div className="welcome-state"><div className="welcome-icon"><Icon name="sparkles" size={22} /></div><h2>What would you like to know?</h2><p>Search across your indexed documents to get a grounded answer with clear sources.</p><div className="suggestion-list">{suggestedQuestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => void handleQuery(undefined, suggestion)}><span>{suggestion}</span><Icon name="arrow-up" size={15} /></button>)}</div></div>}
               {isQuerying && <div className="loading-state"><div className="loading-orb"><span /><span /><span /></div><h2>Searching your knowledge...</h2><p>Retrieving the most relevant passages and checking their sources.</p><div className="loading-lines"><span /><span /><span /></div></div>}
               {queryError && !isQuerying && <div className="error-state"><div className="error-icon"><Icon name="info" size={21} /></div><h2>We couldn’t complete that search.</h2><p>{queryError}</p><button className="secondary-button" type="button" onClick={() => void handleQuery(undefined, activeQuery)}>Try again <Icon name="arrow-up" size={15} /></button></div>}
-              {message && !isQuerying && <div className="answer-content"><div className="question-row"><div className="question-avatar">JD</div><div><span className="answer-label">Your question</span><p>{message.question}</p></div></div><div className="assistant-row"><div className="assistant-avatar"><Icon name="sparkles" size={16} /></div><div className="assistant-copy"><div className="answer-meta"><span>Answer</span>{message.domain && <span className="domain-chip">{message.domain}</span>}<span className="answer-time">Just now</span></div><p className="answer-text">{message.answer}</p>{message.sources.length > 0 && <div className="sources-section"><div className="sources-heading"><span>Sources</span><span>{message.sources.length} documents</span></div><div className="source-list">{message.sources.map((source) => <SourceCard key={source.id} source={source} />)}</div></div>}{message.sources.length === 0 && <div className="no-sources"><Icon name="info" size={15} /> This answer did not include any source citations.</div>}</div></div></div>}
+               {message && !isQuerying && <div className="answer-content"><div className="question-row"><div className="question-avatar">JD</div><div><span className="answer-label">Your question</span><p>{message.question}</p></div></div><div className="assistant-row"><div className="assistant-avatar"><Icon name="sparkles" size={16} /></div><div className="assistant-copy"><div className="answer-meta"><span>Answer</span>{message.domain && <span className="domain-chip">{message.domain}</span>}<span className="answer-time">Just now</span></div><p className="answer-text">{message.answer}</p>{message.abstained && <div className="no-sources"><Icon name="info" size={15} /> No indexed passage matched this question, so the assistant abstained.</div>}{message.sources.length > 0 && <div className="sources-section"><div className="sources-heading"><span>Evidence passages</span><span>{message.sources.length} result{message.sources.length === 1 ? "" : "s"}</span></div><div className="source-list">{message.sources.map((source) => <SourceCard key={source.id} source={source} />)}</div></div>}</div></div></div>}
             </div>
 
             <form className="composer" onSubmit={handleQuery}><div className="composer-top"><textarea value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ask a question about your knowledge base..." rows={2} aria-label="Ask a question" /><button className="send-button" type="submit" disabled={!query.trim() || isQuerying} aria-label="Send question"><Icon name="arrow-up" size={18} /></button></div><div className="composer-bottom"><div className="composer-hint"><Icon name="sparkles" size={14} /> Answers are generated from your indexed documents</div><span className="keyboard-hint">Press <kbd>⌘</kbd><kbd>↵</kbd> to send</span></div></form>
@@ -302,9 +329,10 @@ export default function Home() {
 
           <aside className="documents-column" id="documents">
             <div className="panel-heading"><div><h2>Knowledge base</h2><p>{readyCount} ready to answer questions</p></div><button className="add-button" type="button" onClick={() => fileInputRef.current?.click()}><Icon name="plus" size={16} />Add files</button></div>
-            <div className="upload-panel" onClick={() => fileInputRef.current?.click()} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") fileInputRef.current?.click(); }}><div className="upload-icon"><Icon name="cloud-upload" size={20} /></div><div><strong>{uploading ? "Uploading document..." : "Drop files to index"}</strong><p>PDF, DOCX, TXT up to 50 MB</p></div><Icon name="chevron-right" size={17} /></div>
-            <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.txt,.md" onChange={(event) => void handleFiles(event)} hidden />
-            {uploadError && <div className="inline-error"><Icon name="info" size={15} /><span>{uploadError}</span><button type="button" onClick={() => setUploadError("")} aria-label="Dismiss upload error"><Icon name="x" size={14} /></button></div>}
+             <div className="upload-panel" onClick={() => fileInputRef.current?.click()} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") fileInputRef.current?.click(); }}><div className="upload-icon"><Icon name="cloud-upload" size={20} /></div><div><strong>{uploading ? "Uploading document..." : "Add a source document"}</strong><p>TXT, MD, or Markdown up to 5 MB</p></div><Icon name="chevron-right" size={17} /></div>
+             <input ref={fileInputRef} type="file" accept=".txt,.md,.markdown" onChange={(event) => void handleFiles(event)} hidden />
+             {uploadError && <div className="inline-error"><Icon name="info" size={15} /><span>{uploadError}</span><button type="button" onClick={() => setUploadError("")} aria-label="Dismiss upload error"><Icon name="x" size={14} /></button></div>}
+             {documentError && <div className="inline-error"><Icon name="info" size={15} /><span>{documentError}</span><button type="button" onClick={() => { setDocumentError(""); void refreshDocuments().catch(() => setDocumentError("The knowledge base is still unavailable.")); }} aria-label="Retry loading documents"><Icon name="clock" size={14} /></button></div>}
             <div className="document-toolbar"><div className="doc-title"><span>Documents</span><span className="doc-count">{documents.length}</span></div><div className="doc-tools"><label className="search-field"><Icon name="search" size={15} /><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter" aria-label="Filter documents" /></label><button className="icon-button small" type="button" aria-label="Document options"><Icon name="more" size={16} /></button></div></div>
              <div className="document-list">{filteredDocuments.length === 0 ? <div className="empty-documents"><div className="empty-icon"><Icon name="folder" size={20} /></div><strong>No documents found</strong><p>{documents.length === 0 ? "Upload a file to start building your knowledge base." : "Try a different search term."}</p>{documents.length === 0 && <button type="button" onClick={() => fileInputRef.current?.click()}>Upload your first file <Icon name="arrow-up" size={14} /></button>}</div> : filteredDocuments.map((document) => <div className="document-row" key={document.id}><div className={`document-icon ${document.type.toLowerCase()}`}><Icon name="file-text" size={17} /></div><div className="document-details"><strong title={document.name}>{document.name}</strong><span>{document.type} · {document.size} · {document.updated}</span></div><StatusBadge status={document.status} /><button type="button" className="row-more" aria-label={`Options for ${document.name}`}><Icon name="more" size={16} /></button></div>)}</div>
             <button className="view-all" type="button">View all documents <Icon name="chevron-right" size={15} /></button>

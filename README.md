@@ -1,88 +1,177 @@
-# Enterprise Knowledge Assistant
+# Knowwise — Enterprise Knowledge Assistant
 
-## Overview
-The **Enterprise Knowledge Assistant** is an advanced Decision Intelligence Platform designed to automate enterprise research, semantic search, and evidence-grounded decision support across multiple business functions.
+Knowwise is an evidence-first internal knowledge assistant. A user indexes a
+UTF-8 text or Markdown document, asks a question, and receives a deterministic
+retrieval result with inspectable passages and stable citation IDs. The
+application is intentionally small enough to run offline and explain in an
+engineering interview.
 
-By leveraging a multi-agent **LangGraph** architecture, the platform securely parses domain-specific queries and retrieves verifiable data using a hybrid **GraphRAG** approach (Neo4j for relationships, FAISS for dense vector similarity, and BM25 for lexical search). 
+## What is implemented
 
-## Key Features
-- **Multi-Agent Architecture:** Specialized agents for distinct enterprise domains, including:
-  - **HR Agent:** Tailored for resume parsing, candidate skill validation, and recruitment pipeline analysis.
-  - **Policy Auditor:** Reviews corporate policies for compliance and answers employee queries.
-  - **Precedent Validator:** Searches historical project data to validate new proposals based on past outcomes.
-- **100% Traceable Citations:** All generated responses are grounded in the source data. The system guarantees traceable document IDs (e.g., `[DocID: HR-101]`) for every factual claim.
-- **Hybrid GraphRAG Retrieval:** Fuses Neo4j Knowledge Graphs with FAISS vector similarity to understand both the *relationships* between entities and their *semantic meaning*.
-- **GenAI Evaluation Pipeline:** Built-in reflection nodes evaluate the generated responses for groundedness and citation accuracy before delivering them to the user.
-- **Modern Tech Stack:** 
-  - **Backend:** Python, FastAPI, LangGraph, LangChain, Neo4j, FAISS
-  - **Frontend:** Next.js (App Router), Tailwind CSS, TypeScript
-  - **Infrastructure:** Docker & Docker Compose
+- FastAPI API for document upload, listing, deletion, health, readiness, and
+  querying.
+- Deterministic normalization, SHA-256 content metadata, paragraph-aware
+  chunking, and stable `document_id#chunk-N` citations.
+- A persisted, atomic JSON document store and a lexical retriever that works
+  without API keys or network access.
+- LangGraph orchestration for query classification, retrieval, synthesis, and
+  citation validation.
+- Explicit abstention when no indexed passage matches a query.
+- Next.js workspace UI with real document loading, upload states, answer
+  states, source cards, expandable evidence passages, and failure states.
+- Docker Compose with a persisted data volume, backend health checks, CORS
+  configuration, and `npm ci`/pinned backend dependencies.
 
-## Architecture Flow
+## Honest scope and trade-offs
 
-The system employs a deterministic state graph to route queries and validate responses:
+The current release supports `.txt`, `.md`, and `.markdown` only. It does not
+claim PDF extraction, vector embeddings, BM25, Neo4j GraphRAG, authentication,
+multi-tenant permissions, or LLM-generated synthesis. The answer is extractive
+and built from retrieved passages, which makes citation integrity testable.
+
+This is a deliberate first release: a reliable vertical slice is more useful
+than a diagram that advertises infrastructure the code does not use. The next
+production-oriented steps would be a real database/index, PDF extraction,
+authentication and document-level ACL filtering, then an embedding/BM25
+comparison backed by a versioned evaluation set.
+
+## Architecture
 
 ```mermaid
-graph TD
-    A[User Query] --> B[Query Analyzer Node]
-    B --> C{Master Router}
-    
-    C -- "Domain: HR" --> D[HR Agent Node]
-    C -- "Domain: Policy" --> E[Policy Agent Node]
-    C -- "Domain: Precedent" --> F[Precedent Agent Node]
-    C -- "Domain: General" --> G[General Agent Node]
-    
-    D --> H[Hybrid Retriever Node]
-    E --> H
-    F --> H
-    G --> H
-    
-    H -- "Neo4j + FAISS + BM25" --> I[Synthesizer Node]
-    I --> J[Evaluator Node]
-    
-    J -- "Low Groundedness" --> I
-    J -- "Approved" --> K[Final Response with Citations]
+flowchart LR
+  U[User] --> F[Next.js workspace]
+  F -->|upload| A[FastAPI]
+  F -->|query| A
+  A --> I[Normalize + chunk]
+  I --> S[(Atomic JSON store)]
+  A --> G[LangGraph]
+  G --> R[Lexical retriever]
+  R --> S
+  R --> V[Evidence passages]
+  V --> C[Citation validator]
+  C --> F
 ```
 
-## Getting Started
+## Prerequisites
 
-### Prerequisites
-- Docker and Docker Compose installed.
-- (Optional) Local Python 3.10+ and Node.js 20+ environments if running without Docker.
+- Docker Engine with Compose, or
+- Python 3.10.8 (pinned in `backend/.python-version`) and Node.js 20.x
+  (the frontend image uses Node 20; `.nvmrc` pins 20.19.0).
 
-### Running with Docker Compose
-The easiest way to run the entire stack is via Docker:
+No API keys are required for the tested local flow.
+
+## Run with Docker Compose
 
 ```bash
-docker-compose up --build
+cp .env.example .env
+docker compose up --build
 ```
 
-This will spin up three services:
-1. **Frontend (Next.js):** `http://localhost:3000`
-2. **Backend (FastAPI):** `http://localhost:8000`
-3. **Graph Database (Neo4j):** `http://localhost:7474` (Bolt: 7687)
+Open:
 
-### Local Development
+- UI: <http://localhost:3000>
+- API docs: <http://localhost:8000/docs>
+- Health: <http://localhost:8000/healthz>
+- Readiness: <http://localhost:8000/readyz>
 
-**Backend API:**
+Uploaded documents persist in the `knowledge_data` named volume. To reset the
+demo data, run `docker compose down -v` and start again. The API is the only
+service exposed besides the UI; no unused database port is published.
+
+For a non-local deployment, set `NEXT_PUBLIC_API_URL` to the public backend
+origin before building the frontend and set `CORS_ORIGINS` to the exact UI
+origin. Do not commit secrets or put secrets in `NEXT_PUBLIC_*` variables.
+
+## Run locally
+
+### Backend
+
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate  # Or venv\Scripts\activate on Windows
-pip install -r requirements.txt
-uvicorn main:app --reload
+python -m venv .venv
+# Windows PowerShell
+.venv\Scripts\python.exe -m pip install -r requirements.lock
+.venv\Scripts\python.exe -m uvicorn main:app --reload
+# macOS/Linux: use .venv/bin/python instead
 ```
 
-**Frontend UI:**
+### Frontend
+
+In a second terminal:
+
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-## Testing
-To ensure the Multi-Agent routing is functioning correctly, you can run the backend unit tests:
+The frontend reads `NEXT_PUBLIC_API_URL` at build time and defaults to
+`http://localhost:8000`.
+
+## Test and build
+
+The repository has one reproducible test entry point:
+
 ```bash
-cd backend
-pytest test_graph.py
+make test
 ```
+
+It runs the offline backend pytest suite, frontend ESLint, and TypeScript
+typechecking. To verify the production frontend build:
+
+```bash
+make build
+```
+
+Backend tests cover deterministic ingestion, stable chunk metadata, real
+retrieval, citation integrity, abstention, upload/list/delete API behavior,
+invalid uploads, and health/readiness endpoints.
+
+## API quick start
+
+```bash
+curl -F "file=@samples/handbook.md" http://localhost:8000/documents
+curl http://localhost:8000/documents
+curl -H "Content-Type: application/json" \
+  -d '{"query":"What does the handbook require?"}' \
+  http://localhost:8000/query
+curl -X DELETE http://localhost:8000/documents/DOCUMENT_ID
+```
+
+The query response includes `response`, `domain`, `abstained`, `citations`,
+and `evidence`. Every citation returned by the workflow must resolve to an
+evidence item in the same response.
+
+## Project layout
+
+```text
+backend/
+  main.py             FastAPI routes and operational endpoints
+  graph.py            LangGraph workflow and citation validation
+  knowledge.py        ingestion, chunking, persistence, retrieval
+  test_graph.py       offline behavior and API tests
+frontend/src/app/
+  page.tsx            workspace UI and API integration
+  globals.css         responsive visual system
+docker-compose.yml    reproducible local stack
+Makefile              single test/build entry points
+```
+
+## Security and production limitations
+
+Uploaded files are untrusted input and are currently limited to 5 MiB UTF-8
+text. The demo has no authentication or workspace ACLs, so it must not be
+used with confidential documents on a public deployment. Before production,
+add identity-aware document ownership, retrieval-time authorization filters,
+rate limits, structured request IDs, audit logging that avoids document text,
+and a managed persistence/index layer with backups.
+
+## Roadmap
+
+1. Add PDF extraction with page-aware metadata and a fixture corpus.
+2. Add an embedding index and BM25 baseline, then publish Recall@k/MRR@k
+   comparisons rather than unmeasured claims.
+3. Add authentication, workspace isolation, upload quotas, and prompt/
+   document-injection tests.
+4. Add an optional LLM synthesis provider behind a deterministic fake for CI,
+   retaining the citation validator and abstention gate.
