@@ -6,6 +6,7 @@ services:
       - "8000:8000"
     environment:
       KNOWLEDGE_STORE_PATH: /app/data/documents.json
+      GRAPH_RAG_INDEX_PATH: /app/data/graph.json
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       KNOWLEDGE_RETRIEVER_MODE: ${KNOWLEDGE_RETRIEVER_MODE:-bm25}
       KNOWLEDGE_LEXICAL_WEIGHT: ${KNOWLEDGE_LEXICAL_WEIGHT:-0.7}

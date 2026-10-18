@@ -2,10 +2,11 @@
 
 This backend is an offline-friendly evidence-grounded decision-intelligence
 slice. It accepts UTF-8 TXT and Markdown files, stores deterministic
-document/chunk metadata in `data/documents.json`, and answers queries with a
-real BM25 retriever by default. Optional vector retrieval, FAISS, Ollama, and
-read-only Neo4j adapters are available without making them required for CI.
-Queries abstain when no indexed chunk matches.
+document/chunk metadata in `data/documents.json`, builds a citation-linked
+local GraphRAG index in `data/graph.json`, and answers queries with BM25 plus
+graph context by default. Optional vector retrieval, FAISS, Ollama, and
+Neo4j projection/context adapters are available without making them required
+for CI. Queries abstain when no indexed evidence matches.
 
 ## Setup
 
@@ -51,7 +52,8 @@ Optional integrations use the pinned packages in
 `requirements.optional.lock`. Ollama is configured with `OLLAMA_BASE_URL`,
 `OLLAMA_EMBEDDING_MODEL`, and `OLLAMA_CHAT_MODEL`. Neo4j uses
 `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD`; its adapter rejects
-write Cypher and degrades to disabled context when unavailable.
+write Cypher and degrades to disabled context when unavailable. Local GraphRAG
+is still active when Neo4j is not configured.
 
 ## API flow
 

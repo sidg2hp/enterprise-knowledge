@@ -2,11 +2,11 @@ Knowwise - How to Use
 
 This repository implements an offline-friendly evidence-first vertical slice
 with optional decision-intelligence integrations. It accepts UTF-8 TXT and
-Markdown files, stores deterministic chunks, and returns answers with
-citations that resolve to returned source passages. BM25 is the default;
-optional FAISS/vector retrieval, Ollama embeddings/chat, and read-only Neo4j
-context are available when configured. PDF extraction, authentication, and
-document permissions are not implemented yet.
+Markdown files, stores deterministic chunks, builds a local citation-linked
+GraphRAG index, and returns answers using BM25 plus graph context. Optional
+FAISS/vector retrieval, Ollama embeddings/chat, and Neo4j projection/context
+are available when configured. PDF extraction, authentication, and document
+permissions are not implemented yet.
 
 1. Start the application
 

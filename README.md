@@ -15,7 +15,7 @@ engineering interview.
 | --- | --- |
 | Local application | Working end-to-end vertical slice |
 | Supported ingestion | UTF-8 `.txt`, `.md`, and `.markdown` |
-| Retrieval | BM25 by default; optional vector/FAISS and Ollama embeddings |
+| Retrieval | BM25 + local GraphRAG by default; optional vector/FAISS and Ollama embeddings |
 | Answer behavior | Extractive by default; optional Ollama synthesis with evidence and abstention |
 | Automated checks | Backend pytest plus frontend lint, typecheck, and build |
 | Public deployment | Not currently published; run locally with Docker Compose |
@@ -28,14 +28,17 @@ engineering interview.
   chunking, and stable `document_id#chunk-N` citations.
 - A persisted, atomic JSON document store and a lexical retriever that works
   without API keys or network access.
-- A real BM25 implementation plus optional vector retrieval using FAISS when
+- A real BM25 implementation plus citation-linked local GraphRAG retrieval;
+  optional vector retrieval uses FAISS when
   installed, with a deterministic hash-vector fallback for offline CI.
 - Optional Ollama embeddings and chat synthesis with an evidence-only prompt;
   the extractive answer path remains the safe fallback.
 - LangGraph orchestration for six domains: HR, policy, precedent, finance,
   engineering, and general enterprise knowledge.
-- Optional, read-only Neo4j graph context with safe Cypher validation. Graph
-  context never replaces source-passage grounding.
+- A deterministic local graph index that extracts entities and relations from
+  chunks, traverses up to two hops, and returns graph paths tied to source
+  citations. The same graph can be projected to optional Neo4j using fixed
+  parameterized Cypher. Graph context never replaces source-passage grounding.
 - Explicit abstention when no indexed passage matches a query.
 - Deterministic evaluation for Recall@k, MRR@k, citation validity,
   groundedness proxy, and abstention accuracy.
@@ -49,9 +52,10 @@ engineering interview.
 
 ## Honest scope and trade-offs
 
-The current release supports `.txt`, `.md`, and `.markdown` only. BM25 is the
-default offline retriever. FAISS, Ollama, and Neo4j are implemented as optional
-integrations and require their own runtime setup; CI does not depend on them.
+The current release supports `.txt`, `.md`, and `.markdown` only. BM25 and the
+local JSON GraphRAG index run by default offline. FAISS, Ollama, and Neo4j are
+optional integrations and require their own runtime setup; CI does not depend
+on them.
 Authentication, document-level permissions, PDF extraction, and a measured
 95% research-time reduction are not implemented or claimed. The system does
 not claim 100% grounding: it validates citation resolution and reports a
@@ -75,7 +79,8 @@ flowchart LR
   G --> D{Six-domain router}
   D --> L[Specialist metadata node]
   L --> R[BM25 / vector retrieval]
-  R --> N[(Optional Neo4j context)]
+  R --> N[(Local GraphRAG index)]
+  N -. optional projection .-> X[(Neo4j)]
   R --> S
   R --> V[Evidence passages]
   V --> O[Optional Ollama synthesis]
