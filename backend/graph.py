@@ -253,9 +253,50 @@ def graph_context_retriever(state: GraphState) -> dict[str, Any]:
 
 
 def real_retriever(state: GraphState) -> dict[str, Any]:
-    """Call the persisted lexical retriever; no mock context is injected."""
+    """Fuse lexical evidence with citation-linked GraphRAG context."""
 
-    return {"evidence": get_document_store().search(state.get("query", ""))}
+    store = get_document_store()
+    lexical = store.search(state.get("query", ""))
+    graph_context = state.get("graph_context", [])
+    by_citation = {item["citation"]: dict(item) for item in lexical if item.get("citation")}
+    for rank, item in enumerate(graph_context):
+        citation = item.get("citation")
+        if not citation:
+            continue
+        existing = by_citation.get(citation)
+        graph_score = round(1.0 / (rank + 1), 6)
+        if existing is not None:
+            existing["graph_score"] = graph_score
+            existing["retrieval_sources"] = sorted(set(existing.get("retrieval_sources", [])) | {"bm25", "graph_rag"})
+            existing["graph_paths"] = item.get("graph_paths", [])
+            existing["retrieval"] = {**existing.get("retrieval", {}), "graph_score": graph_score}
+            continue
+        by_citation[citation] = {
+            "citation": citation,
+            "chunk_id": item.get("chunk_id"),
+            "document_id": item.get("document_id"),
+            "filename": item.get("filename", ""),
+            "chunk_index": item.get("chunk_index", 0),
+            "text": item.get("text", ""),
+            "score": graph_score,
+            "lexical_score": 0.0,
+            "vector_score": None,
+            "retriever_mode": "graph_rag",
+            "retrieval_sources": ["graph_rag"],
+            "graph_score": graph_score,
+            "graph_paths": item.get("graph_paths", []),
+            "matched_terms": item.get("matched_entities", []),
+            "retrieval": {
+                "mode": "graph_rag",
+                "lexical_score": 0.0,
+                "vector_score": None,
+                "graph_score": graph_score,
+                "vector_backend": "disabled",
+            },
+        }
+    evidence = list(by_citation.values())
+    evidence.sort(key=lambda item: (-float(item.get("score", 0.0)), str(item.get("citation", ""))))
+    return {"evidence": evidence[:5]}
 
 
 def synthesizer(state: GraphState) -> dict[str, Any]:
@@ -283,7 +324,18 @@ def synthesizer(state: GraphState) -> dict[str, Any]:
             response = f"{response}\nSources: {', '.join(f'[{citation}]' for citation in missing_citations)}"
     else:
         excerpts = [f"{item['text']} [{item['citation']}]" for item in evidence]
-        response = "Based on the knowledge base: " + " ".join(excerpts)
+        graph_paths = [path for item in evidence for path in item.get("graph_paths", [])]
+        graph_summary = ""
+        if graph_paths:
+            relations = [
+                f"{relation['source']} {relation['relation'].replace('_', ' ')} {relation['target']}"
+                for path in graph_paths
+                for relation in path.get("relations", [])
+                if relation.get("source") and relation.get("target")
+            ]
+            if relations:
+                graph_summary = " GraphRAG connected: " + "; ".join(dict.fromkeys(relations)) + "."
+        response = "Based on the knowledge base:" + graph_summary + " " + " ".join(excerpts)
     return {
         "response": response,
         "citations": citations,

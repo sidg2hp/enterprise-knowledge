@@ -18,15 +18,18 @@
   "cases": [
     {
       "query": "How many days can employees work remotely?",
-      "document": "remote-work-policy.md"
+      "document": "remote-work-policy.md",
+      "relevant_chunk_indices": [1]
     },
     {
       "query": "What is required before a customer-facing release?",
-      "document": "engineering-handbook.md"
+      "document": "engineering-handbook.md",
+      "relevant_chunk_indices": [1]
     },
     {
       "query": "Who approves invoices above 10000 before payment?",
-      "document": "finance-controls.md"
+      "document": "finance-controls.md",
+      "relevant_chunk_indices": [1]
     },
     {
       "query": "What is the office parking allowance?",

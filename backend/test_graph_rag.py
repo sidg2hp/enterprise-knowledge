@@ -65,6 +65,19 @@ def test_query_retrieval_returns_paths_context_and_citations(tmp_path: Path):
         assert all(citation in result["citations"] for path in context["paths"] for citation in path["citations"])
 
 
+def test_graph_rag_preserves_explicit_relation_type_and_avoids_substring_seeds(tmp_path: Path):
+    graph = GraphRAGIndex(tmp_path / "graph.json")
+    document = ingest_document("tools.md", b"Knowwise uses LangGraph and Neo4j.")
+    graph.index_document(document)
+
+    relation_types = {
+        relation["relation_type"]
+        for relation in graph._read()["relations"].values()
+    }
+    assert "uses" in relation_types
+    assert graph.retrieve("What is the office parking allowance?")["contexts"] == []
+
+
 def test_delete_removes_document_chunks_entities_relations_and_retrieval(tmp_path: Path):
     graph = GraphRAGIndex(tmp_path / "graph.json")
     document = _document()

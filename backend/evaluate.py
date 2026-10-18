@@ -43,7 +43,14 @@ def run_evaluation(path: str | Path | None = None) -> dict[str, Any]:
         for case in fixture["cases"]:
             result = app_graph.invoke({"query": case["query"]})
             expected = documents.get(case.get("document"))
-            relevant = [chunk["citation"] for chunk in expected["chunks"]] if expected else []
+            relevant = []
+            if expected:
+                relevant_indices = case.get("relevant_chunk_indices")
+                relevant = [
+                    chunk["citation"]
+                    for chunk in expected["chunks"]
+                    if relevant_indices is None or chunk["chunk_index"] in relevant_indices
+                ]
             if relevant:
                 retrieval_cases.append((result.get("evidence", []), relevant))
             grounding_results.append({

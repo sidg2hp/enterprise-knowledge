@@ -29,6 +29,7 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+(?:'[a-z0-9]+)?", re.IGNORECASE)
 
 _ENTITY_STOP_WORDS = {
     "a",
+    "all",
     "an",
     "and",
     "as",
@@ -189,19 +190,45 @@ def extract_relations(text: str, entities: Iterable[Mapping[str, Any]] | None = 
             if start <= int(item.get("start_char", -1)) < end
         ]
         mentions.sort(key=lambda item: (int(item.get("start_char", 0)), str(item.get("name", "")).casefold()))
-        for source, target in zip(mentions, mentions[1:]):
-            source_end = int(source.get("end_char", source["start_char"]))
-            target_start = int(target.get("start_char", target["end_char"]))
-            relation_type = _relation_type(text[source_end:target_start])
-            key = (str(source["entity_id"]), str(target["entity_id"]), relation_type)
-            relations[key] = {
-                "relation_id": _relation_id(*key),
-                "source_entity_id": key[0],
-                "target_entity_id": key[1],
-                "relation_type": relation_type,
-                "start_char": int(source.get("start_char", 0)),
-                "end_char": int(target.get("end_char", 0)),
-            }
+        sentence_text = sentence.group(0)
+        explicit_matches = [
+            (relation_type, match)
+            for relation_type, regex in _RELATION_REGEXES
+            for match in regex.finditer(sentence_text)
+        ]
+        if explicit_matches and mentions:
+            for relation_type, match in sorted(explicit_matches, key=lambda item: item[1].start()):
+                absolute_start = start + match.start()
+                absolute_end = start + match.end()
+                sources = [item for item in mentions if int(item.get("end_char", 0)) <= absolute_start]
+                targets = [item for item in mentions if int(item.get("start_char", 0)) >= absolute_end]
+                if not sources or not targets:
+                    continue
+                source = sources[-1]
+                for target in targets:
+                    key = (str(source["entity_id"]), str(target["entity_id"]), relation_type)
+                    relations[key] = {
+                        "relation_id": _relation_id(*key),
+                        "source_entity_id": key[0],
+                        "target_entity_id": key[1],
+                        "relation_type": relation_type,
+                        "start_char": int(source.get("start_char", 0)),
+                        "end_char": int(target.get("end_char", 0)),
+                    }
+        else:
+            for source, target in zip(mentions, mentions[1:]):
+                source_end = int(source.get("end_char", source["start_char"]))
+                target_start = int(target.get("start_char", target["end_char"]))
+                relation_type = _relation_type(text[source_end:target_start])
+                key = (str(source["entity_id"]), str(target["entity_id"]), relation_type)
+                relations[key] = {
+                    "relation_id": _relation_id(*key),
+                    "source_entity_id": key[0],
+                    "target_entity_id": key[1],
+                    "relation_type": relation_type,
+                    "start_char": int(source.get("start_char", 0)),
+                    "end_char": int(target.get("end_char", 0)),
+                }
     return sorted(relations.values(), key=lambda item: item["relation_id"])
 
 
@@ -427,7 +454,7 @@ class GraphRAGIndex:
             name_key = name.casefold()
             name_tokens = {token.casefold() for token in _TOKEN_RE.findall(name_key)}
             score = 0.0
-            if name_key and name_key in query_key:
+            if name_tokens and name_tokens <= query_tokens:
                 score += 3.0
             overlap = len(name_tokens & query_tokens)
             score += overlap / max(1, len(name_tokens))
@@ -490,9 +517,23 @@ class GraphRAGIndex:
         paths.sort(key=lambda item: (-float(item["score"]), len(item["entity_ids"]), tuple(item["entity_ids"])))
         contexts_by_chunk: dict[str, dict[str, Any]] = {}
         for path in paths:
+            path_entities = [
+                state["entities"][entity_id]["name"]
+                for entity_id in path["entity_ids"]
+                if entity_id in state["entities"]
+            ]
+            path_relations = [
+                {
+                    "source": state["entities"].get(relation["source_entity_id"], {}).get("name"),
+                    "relation": relation["relation_type"],
+                    "target": state["entities"].get(relation["target_entity_id"], {}).get("name"),
+                }
+                for relation in path["relations"]
+            ]
             for entity in path["entities"]:
                 for chunk_id in entity.get("chunk_ids", []):
                     chunk = state["chunks"].get(chunk_id)
+                    document = state["documents"].get(chunk.get("document_id")) if chunk else None
                     if not chunk:
                         continue
                     context = contexts_by_chunk.setdefault(
@@ -500,14 +541,19 @@ class GraphRAGIndex:
                         {
                             "chunk_id": chunk["chunk_id"],
                             "document_id": chunk["document_id"],
+                            "filename": (document or {}).get("filename", ""),
+                            "chunk_index": chunk.get("chunk_index", 0),
                             "text": chunk["text"],
                             "citation": chunk["citation"],
                             "source_chunk_citations": [chunk["citation"]],
+                            "graph_paths": [],
                             "paths": [],
                         },
                     )
                     if path not in context["paths"]:
                         context["paths"].append(path)
+                    if {"entities": path_entities, "relations": path_relations} not in context["graph_paths"]:
+                        context["graph_paths"].append({"entities": path_entities, "relations": path_relations})
         contexts = sorted(contexts_by_chunk.values(), key=lambda item: (item["chunk_id"]))[:safe_limit]
         citations = _unique_sorted(item["citation"] for item in contexts)
         return {"query": query, "paths": paths, "contexts": contexts, "citations": citations}
