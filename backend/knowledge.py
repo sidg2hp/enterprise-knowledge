@@ -47,6 +47,91 @@ except ImportError:  # pragma: no cover - exercised by direct server commands
     )
 
 
+try:  # Support both `uvicorn main:app` from backend/ and package imports.
+    from .graph_rag import GraphRAGIndex, Neo4jGraphWriter
+except ImportError:  # pragma: no cover - exercised by direct server commands
+    try:
+        from graph_rag import GraphRAGIndex, Neo4jGraphWriter
+    except ImportError:  # pragma: no cover - clean installs without the optional module
+        class Neo4jGraphWriter:
+            """No-op writer used when the optional graph_rag package is absent."""
+
+            @classmethod
+            def from_env(cls) -> "Neo4jGraphWriter":
+                return cls()
+
+            def upsert(self, *_args: Any, **_kwargs: Any) -> bool:
+                return False
+
+        class GraphRAGIndex:
+            """Dependency-free chunk graph fallback for offline installations."""
+
+            def __init__(self, path: str | Path, neo4j_writer: Any | None = None):
+                self.path = Path(path)
+                self._documents: dict[str, dict[str, Any]] = {}
+                try:
+                    with self.path.open("r", encoding="utf-8") as handle:
+                        value = json.load(handle)
+                    if isinstance(value, dict) and isinstance(value.get("documents"), dict):
+                        self._documents = value["documents"]
+                except (OSError, json.JSONDecodeError):
+                    pass
+
+            def _write(self) -> None:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = self.path.with_suffix(self.path.suffix + ".tmp")
+                temporary.write_text(
+                    json.dumps({"documents": self._documents}, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                os.replace(temporary, self.path)
+
+            def index_document(self, document: dict[str, Any]) -> dict[str, Any]:
+                self._documents[str(document["document_id"])] = document
+                self._write()
+                return document
+
+            def delete_document(self, document_id: str) -> bool:
+                deleted = self._documents.pop(document_id, None) is not None
+                if deleted:
+                    self._write()
+                return deleted
+
+            def search(self, query: str, *, limit: int = 5) -> list[dict[str, Any]]:
+                terms = set(_tokens(query))
+                matches: list[dict[str, Any]] = []
+                for document in self._documents.values():
+                    for chunk in document.get("chunks", []):
+                        matched = terms.intersection(_tokens(str(chunk.get("text", ""))))
+                        if not matched:
+                            continue
+                        matches.append(
+                            {
+                                "chunk_id": chunk["chunk_id"],
+                                "document_id": document["document_id"],
+                                "text": chunk["text"],
+                                "citation": chunk["citation"],
+                                "matched_entities": sorted(matched),
+                                "paths": [],
+                                "source_chunk_citations": [chunk["citation"]],
+                            }
+                        )
+                matches.sort(key=lambda item: (-len(item["matched_entities"]), item["citation"]))
+                return matches[: max(1, limit)]
+
+            def status(self) -> dict[str, Any]:
+                chunks = [chunk for document in self._documents.values() for chunk in document.get("chunks", [])]
+                return {
+                    "enabled": True,
+                    "path": str(self.path),
+                    "document_count": len(self._documents),
+                    "chunk_count": len(chunks),
+                    "entity_count": 0,
+                    "relation_count": 0,
+                    "load_error": None,
+                }
+
+
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".markdown"}
 MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
 CHUNK_SIZE = 1200
@@ -136,15 +221,9 @@ def chunk_text(text: str) -> list[tuple[str, int, int]]:
         else:
             pieces.extend(_split_long_piece(piece, match.start()))
 
-    chunks: list[tuple[str, int, int]] = []
-    for piece, start, end in pieces:
-        if chunks and end - chunks[-1][1] <= CHUNK_SIZE:
-            previous_text, previous_start, _ = chunks[-1]
-            combined = f"{previous_text}\n\n{piece}"
-            chunks[-1] = (combined, previous_start, end)
-        else:
-            chunks.append((piece, start, end))
-    return chunks
+    # Preserve paragraph boundaries so graph paths and lexical evidence can
+    # cite the smallest stable source chunk rather than a merged document span.
+    return pieces
 
 
 def _document_id(filename: str, text: str) -> str:
@@ -214,6 +293,8 @@ class DocumentStore:
         self.path = Path(configured)
         self._lock = RLock()
         self.retriever = retriever or HybridRetriever.from_environment(tokenizer=_tokens)
+        graph_path = os.getenv("GRAPH_RAG_INDEX_PATH") or self.path.with_name("graph.json")
+        self.graph_rag = GraphRAGIndex(graph_path, neo4j_writer=Neo4jGraphWriter.from_env())
 
     def _read(self) -> dict[str, Any]:
         if not self.path.exists():
@@ -242,6 +323,7 @@ class DocumentStore:
             state = self._read()
             state["documents"][document["document_id"]] = document
             self._write(state)
+            self.graph_rag.index_document(document)
         return document
 
     def list_documents(self) -> list[dict[str, Any]]:
@@ -270,6 +352,7 @@ class DocumentStore:
                 return False
             del state["documents"][document_id]
             self._write(state)
+            self.graph_rag.delete_document(document_id)
             return True
 
     def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
@@ -288,6 +371,14 @@ class DocumentStore:
                 for chunk in document.get("chunks", [])
             ]
         return self.retriever.retrieve(query, records, max(1, limit))
+
+    def graph_search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Retrieve graph-linked chunks, preserving their source identifiers."""
+
+        return self.graph_rag.search(query, limit=max(1, limit))
+
+    def graph_status(self) -> dict[str, Any]:
+        return self.graph_rag.status()
 
 
 _default_store = DocumentStore()

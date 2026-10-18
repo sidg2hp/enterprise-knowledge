@@ -3,8 +3,8 @@
 The workflow has a small specialist node for each supported domain, followed by
 one shared retrieval/synthesis/evaluation path.  Specialists add routing
 metadata, not invented answers.  The persisted lexical store remains the
-offline source of evidence and the optional graph adapter contributes context
-only when explicitly configured.
+source of cited evidence. A local GraphRAG index contributes graph-linked
+context by default, while the optional Neo4j adapter can augment it.
 """
 
 from __future__ import annotations
@@ -217,17 +217,38 @@ def _route_domain(state: GraphState) -> str:
 
 
 def graph_context_retriever(state: GraphState) -> dict[str, Any]:
-    """Collect optional graph context without making it a required dependency."""
+    """Retrieve local graph context and optionally augment it with Neo4j rows."""
+
+    store = get_document_store()
+    local_context: list[dict[str, Any]] = []
+    try:
+        local_context = store.graph_search(state.get("query", ""))
+    except (ValueError, RuntimeError, OSError):
+        # The graph is an enhancement; lexical retrieval must keep working.
+        local_context = []
+    local_status = store.graph_status()
 
     adapter = get_graph_adapter()
     status = adapter.status()
+    context = list(local_context)
+    neo4j_context: list[dict[str, Any]] = []
     try:
-        context = adapter.search_context(state.get("query", ""))
+        if adapter.configured:
+            neo4j_context = adapter.search_context(state.get("query", ""))
+            context.extend({"source": "neo4j", **item} for item in neo4j_context)
         status = adapter.status()
-    except (ValueError, RuntimeError, OSError):
+    except (AttributeError, ValueError, RuntimeError, OSError):
         # The graph is an enhancement; lexical retrieval must keep working.
-        context = []
         status = {**status, "enabled": False, "reason": "query_unavailable"}
+    # Keep the existing ``enabled`` field tied to the optional Neo4j adapter so
+    # current API clients retain their meaning, and expose local GraphRAG state
+    # alongside it.
+    status = {
+        **status,
+        "local_enabled": bool(local_status.get("enabled", True)),
+        "local_result_count": len(local_context),
+        "neo4j_result_count": len(neo4j_context),
+    }
     return {"graph_context": context, "graph_context_status": status}
 
 

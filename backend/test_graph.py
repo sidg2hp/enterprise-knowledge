@@ -35,6 +35,12 @@ def test_graph_retrieves_real_uploaded_content_and_citations(store):
     assert result["evidence"][0]["text"] == "Jordan has Python and LangGraph experience."
     assert result["citations"] == [result["evidence"][0]["citation"]]
     assert result["citations"][0] in result["response"]
+    assert result["graph_context_status"]["local_enabled"] is True
+    assert result["graph_context_status"]["local_result_count"] > 0
+    assert result["graph_context"][0]["citation"] == result["evidence"][0]["citation"]
+
+    assert store.delete(document["document_id"]) is True
+    assert store.graph_search("Python") == []
 
 
 def test_graph_abstains_without_matching_evidence(store):
